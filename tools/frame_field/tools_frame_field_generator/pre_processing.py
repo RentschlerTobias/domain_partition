@@ -1,11 +1,23 @@
-def map_cross_vectors_to_reference_vector(self, angle_rad):
-        pi        = torch.tensor(math.pi)
+def pre_processing(self):
+    try:
+        add_edge_attr()
+        if self.activate_Debug_Comments == True:
+            print(
+                'added edge attr: tensor with boolen values if edge == boundary edge')
+    except:
+        print('could not add edge attribute')
+    try:
+        add_face_attr()
+        if self.activate_Debug_Comments == True:
+            print(
+                'added face attr: tensor with boolen values if face == boundary face')
+    except:
+        print('could not add face attribute')
+    try:
+        add_cross_at_boundaries()
+        if self.activate_Debug_Comments == True:
+            print(
+                'added face attr: tensor with boolen values if face == boundary face')
+    except:
 
-        if angle_rad <0:
-            angle_rad = angle_rad + 2*pi
-        angle     = angle_rad % (pi/2)
-        angles    = torch.tensor([angle,angle + (pi/2),angle+ (pi),angle + (3/2*pi)])
-        ref_vec_of_cross          = 4*torch.min(angles)
-        return ref_vec_of_cross
-
-
+        print('could not add crosses at the boundary')
