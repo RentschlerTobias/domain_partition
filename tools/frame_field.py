@@ -11,6 +11,7 @@ class FrameField:
 
         self.mesh = meshOfMeshGenerator
         self.add_cross_at_boundaries()
+        self.u_all = []
         self.generate_cross_field()
 
     def map_cross_vectors_to_reference_vector(self, angle_rad):
@@ -93,12 +94,14 @@ class FrameField:
 
     def generate_cross_field(self):
         A, b, u = self.compute_initial_frame_field()
-        u_new = self.Linearization_Norm_Constraint(A, b, u)
 
         u_init_x = torch.from_numpy(u[::2]).unsqueeze(1)
-        u_init_y = torch.from_numpy(u[1::2]).unsqueeze(
-            1)  # x-Komponenten an den Knoten
+        u_init_y = torch.from_numpy(u[1::2]).unsqueeze(1)
+
         u_init = torch.concat((u_init_x, u_init_y), dim=1)
+        self.u_all.append(u_init)
+
+        u_new = self.Linearization_Norm_Constraint(A, b, u)
 
         u_final_x = torch.from_numpy(u_new[::2]).unsqueeze(1)
         u_final_y = torch.from_numpy(u_new[1::2]).unsqueeze(
@@ -238,7 +241,6 @@ class FrameField:
 
         # Initialisierung der aktuellen Lösung
         u_current = u_init.copy()
-
         for n in range(max_iterations):
             # Speichere die vorherige Lösung
             #         print(n)
@@ -306,7 +308,10 @@ class FrameField:
 
             # Aktualisieren der aktuellen Lösung
             u_current = u_new.copy()
+            u_current_x = torch.from_numpy(u_current[::2]).unsqueeze(1)
+            u_current_y = torch.from_numpy(u_current[1::2]).unsqueeze(1)
 
+            self.u_all.append(torch.concat((u_current_x, u_current_y), dim=1))
             # Schritt c: Überprüfung der Konvergenz
             diff = np.linalg.norm(u_current - u_previous)
             if diff < tolerance:
