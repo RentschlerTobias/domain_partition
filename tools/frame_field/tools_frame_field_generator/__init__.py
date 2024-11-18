@@ -1,0 +1,13 @@
+
+from ..frame_field_generator import FrameField
+from .add_cross_at_boundaries import add_cross_at_boundaries
+from .add_edge_attr import add_edge_attr
+from .add_face_attr import add_face_attr
+from .map_cross_vectors_to_reference_vector import map_cross_vectors_to_reference_vector
+from .pre_processing import pre_processing
+
+FrameField.add_cross_at_boundaries = add_cross_at_boundaries
+FrameField.add_edge_attr = add_edge_attr
+FrameField.add_face_attr = add_face_attr
+FrameField.map_cross_vectors_to_reference_vector = map_cross_vectors_to_reference_vector
+FrameField.pre_processing = pre_processing

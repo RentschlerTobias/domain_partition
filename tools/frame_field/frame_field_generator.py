@@ -1,4 +1,3 @@
-from tools_frame_field_generator.pre_processing import pre_processing
 import sys
 from pathlib import Path
 
@@ -14,5 +13,5 @@ class FrameField:
         self.mesh = meshOfMeshGenerator
         self.pre_processing()
 
-    def pre_precessing(self):
-        pre_processing(self)
+    def pre_processing(self):
+        raise NotImplementedError
