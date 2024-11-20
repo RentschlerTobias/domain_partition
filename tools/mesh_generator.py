@@ -19,6 +19,7 @@ class MeshGenerator:
 
         # Generate the mesh upon initialization
         self.mesh = self.get_mesh()
+        self.normalize_mesh_coordinates()
         self.add_edge_attr()
         self.add_face_attr()
 
@@ -91,6 +92,31 @@ class MeshGenerator:
         gmsh.finalize()
         return mesh
 
+    def normalize_mesh_coordinates(self):
+        nodeDim = self.mesh.x.size()[0]
+        transformValues = torch.zeros(nodeDim,dtype=torch.float)
+
+        xMin = (torch.min(self.mesh.x,dim=0)).values[0]
+        xMax = (torch.max(self.mesh.x,dim=0)).values[0]
+        yMin = (torch.min(self.mesh.x,dim=0)).values[1]
+        yMax = (torch.max(self.mesh.x,dim=0)).values[1]
+
+        transformValues[0]= xMin
+        transformValues[1]= xMax
+        transformValues[2]= yMin
+        transformValues[3]= yMax
+
+        normNodes      = torch.zeros((nodeDim,2),dtype=torch.float)
+        normNodes[:,0] = (self.mesh.x[:,0]-xMin)/(xMax-xMin)
+        normNodes[:,1] = (self.mesh.x[:,1]-yMin)/(yMax-yMin)
+        
+        num_center_nodes      = self.mesh.centerPoints.size()[0]
+        normCenterNodes       = torch.zeros((num_center_nodes,2),dtype=torch.float)
+        normCenterNodes[:,0]  = (self.mesh.centerPoints[:,0]-xMin)/(xMax-xMin)
+        normCenterNodes[:,1]  = (self.mesh.centerPoints[:,1]-yMin)/(yMax-yMin)
+        self.mesh.centerPoints    = normCenterNodes
+        self.mesh.x[:,0:2]        = normNodes
+    
     def face_to_edges(self, faces):
         if faces.size(0) == 3:
             edges = torch.cat(

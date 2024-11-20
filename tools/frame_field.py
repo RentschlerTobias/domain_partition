@@ -104,9 +104,15 @@ class FrameField:
         u_final_y = torch.from_numpy(u_new[1::2]).unsqueeze(
             1)  # x-Komponenten an den Knoten
         u_final = torch.concat((u_final_x, u_final_y), dim=1)
+        
 
+        # ensure init values are maintained
+        mask_boundary = self.mesh.x[:,2] !=2 
+        vector_field =(u_final.detach().clone()).to(torch.float)
+        vector_field[mask_boundary,:] =( self.mesh.frame_field_coords[mask_boundary,:] )
         self.mesh.u_init = u_init
         self.mesh.u = u_final
+        self.mesh.frame_field =vector_field  
 
     def compute_initial_frame_field(self):
 
