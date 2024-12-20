@@ -19,15 +19,10 @@ def plot_mesh(mesh, output_file="mesh_airfoil.png"):
 
 
 def plot_vector_field(mesh, output_file="vector_field.png"):
-    """
-    Plot the 2D vector field stored in mesh and save the plot.
 
-    Args:
-    - mesh: The mesh object containing:
-        - mesh.x[:, 0:2]: 2D node coordinates (Nx2 array)
-        - mesh.frame_field: Corresponding vectors at each node (Nx2 array)
-    - output_file: The name of the file to save the plot (default: "vector_field.png").
-    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
     # Extract 2D node coordinates and vectors
     coords = mesh.x[:, 0:2]
     vectors = mesh.frame_field
@@ -42,8 +37,8 @@ def plot_vector_field(mesh, output_file="vector_field.png"):
 
     # Plot the vector field
     plt.figure(figsize=(10, 10))
-    plt.quiver(x, y, u, v, angles='xy', scale_units='xy',
-               scale=20, color='blue', alpha=0.8)
+    plt.quiver(x, y, u, v, angles='xy', scale_units='width', 
+               scale=50, color='blue', alpha=0.8)
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.title("2D Vector Field")
@@ -52,6 +47,36 @@ def plot_vector_field(mesh, output_file="vector_field.png"):
 
     # Save the plot
     plt.tight_layout()
-    plt.savefig(output_file, dpi=300)
-    plt.close()
+    #plt.savefig(output_file, dpi=300)
+    #plt.close()
+    plt.show()
     print(f"Vector field plot saved as '{output_file}'.")
+
+def plot_cross_vector_field(mesh, output_file="cross_field.png"):
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Extract 2D node coordinates and cross-vectors
+    coords = mesh.x[:, 0:2]
+    x, y = coords[:, 0], coords[:, 1]
+
+    coords = coords.cpu().numpy() if hasattr(coords, "cpu") else coords
+
+    plt.figure(figsize=(5, 5))
+    for i in range(4):
+        vectors  = torch.stack([vectors[i] for vectors in mesh.cross_field.values()])
+        
+        plt.quiver(x, y, vectors[:,0],vectors[:,1], angles='xy', scale_units='width', scale=50, color='blue', alpha=0.8)
+
+    plt.axis('equal') 
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend(loc='upper right')
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300)
+    #plt.close()
+    plt.show()
+    print(f"Cross vector field plot saved as '{output_file}'.")
+
