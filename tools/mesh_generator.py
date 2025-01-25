@@ -10,6 +10,7 @@ class MeshGenerator:
     def __init__(self, airfoil, lc=0.5, quadMesh=False):
         self.is_quad_mesh = quadMesh
         self.mesh = self.get_mesh_of_airfoil(lc, airfoil)
+        self.normalize_mesh_coordinates()
 
     def get_mesh_of_airfoil(self, lc, airfoil):
         gmsh.initialize()
@@ -129,22 +130,49 @@ class MeshGenerator:
         edges = edges.to(torch.long)
         return edges
 
-    def export_to_obj_field(self, filename = "mesh.obj"):
+    def normalize_mesh_coordinates(self):
+        nodeDim = self.mesh.x.size()[0]
+        transformValues = torch.zeros(nodeDim, dtype=torch.float)
+
+        xMin = (torch.min(self.mesh.x, dim=0)).values[0]
+        xMax = (torch.max(self.mesh.x, dim=0)).values[0]
+        yMin = (torch.min(self.mesh.x, dim=0)).values[1]
+        yMax = (torch.max(self.mesh.x, dim=0)).values[1]
+
+        transformValues[0] = xMin
+        transformValues[1] = xMax
+        transformValues[2] = yMin
+        transformValues[3] = yMax
+
+        normNodes = torch.zeros((nodeDim, 2), dtype=torch.float)
+        normNodes[:, 0] = (self.mesh.x[:, 0]-xMin)/(xMax-xMin)
+        normNodes[:, 1] = (self.mesh.x[:, 1]-yMin)/(yMax-yMin)
+
+        # num_center_nodes = self.mesh.centerPoints.size()[0]
+        # normCenterNodes = torch.zeros((num_center_nodes, 2), dtype=torch.float)
+        # normCenterNodes[:, 0] = (self.mesh.centerPoints[:, 0]-xMin)/(xMax-xMin)
+        # normCenterNodes[:, 1] = (self.mesh.centerPoints[:, 1]-yMin)/(yMax-yMin)
+        # self.mesh.centerPoints = normCenterNodes
+        self.mesh.x[:, 0:2] = normNodes
+
+    def export_to_obj_field(self, filename="mesh.obj"):
         nodes = self.mesh.x
-        nodes[:,2] = 0
+        nodes[:, 2] = 0
         faces = self.mesh.faces
 
         nodes = nodes.numpy()
         faces = faces.numpy().T
-        
-        with open(filename,'w') as file:
+
+        with open(filename, 'w') as file:
             for node in nodes:
                 file.write(f"v {node[0]} {node[1]} {node[2]}\n")
 
             if faces.shape[1] == 3:  # Triangular faces
                 for face in faces:
-                    file.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
+                    file.write(
+                        f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
             elif faces.shape[1] == 4:  # Quadrilateral faces
-                    file.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1} {face[3] + 1}\n")
-        
+                file.write(f"f {face[0] + 1} {face[1] +
+                           1} {face[2] + 1} {face[3] + 1}\n")
+
         print(f"Mesh exported to {filename}")

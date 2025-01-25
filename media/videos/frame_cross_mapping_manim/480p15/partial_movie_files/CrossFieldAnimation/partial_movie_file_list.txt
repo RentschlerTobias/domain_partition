@@ -1,0 +1,5 @@
+# This file is used internally by FFMPEG.
+file 'file:/home/redacted/work/repos/domain_partition/media/videos/frame_cross_mapping_manim/480p15/partial_movie_files/CrossFieldAnimation/1185818338_3774462027_223132457.mp4'
+file 'file:/home/redacted/work/repos/domain_partition/media/videos/frame_cross_mapping_manim/480p15/partial_movie_files/CrossFieldAnimation/624642324_4125572998_3339488714.mp4'
+file 'file:/home/redacted/work/repos/domain_partition/media/videos/frame_cross_mapping_manim/480p15/partial_movie_files/CrossFieldAnimation/624642324_3009863936_2347306204.mp4'
+file 'file:/home/redacted/work/repos/domain_partition/media/videos/frame_cross_mapping_manim/480p15/partial_movie_files/CrossFieldAnimation/624642324_1704852926_3237773810.mp4'
