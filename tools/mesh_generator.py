@@ -1,159 +1,166 @@
+from os import write
 import gmsh
-import torch
 import numpy as np
+import torch
+from torch_geometric.utils import to_undirected, remove_isolated_nodes
 from torch_geometric.data import Data
-from torch_geometric.utils import to_undirected
-
-from torch_geometric.utils import remove_isolated_nodes
 
 
 class MeshGenerator:
-    def __init__(self, lc=0.5, minBoundary=-5, maxBoundary=5, seed=None):
-        self.lc = lc
-        self.minBoundary = minBoundary
-        self.maxBoundary = maxBoundary
-        self.seed = seed
+    def __init__(self, airfoil, lc=0.5, quadMesh=False):
+        self.is_quad_mesh = quadMesh
+        self.mesh = self.get_mesh_of_airfoil(lc, airfoil)
+        self.mesh.nodes_faces_ids = self.map_nodes_to_faces()
+        self.mesh.edge_attr = self.add_edge_attr()
+        self.mesh.face_attr = self.add_face_attr()
 
-        if self.seed is not None:
-            np.random.seed(self.seed)
-
-        # Generate the mesh upon initialization
-        self.mesh = self.get_mesh()
+        self.mesh = self.getFaceCenterPoints()
         self.normalize_mesh_coordinates()
-        self.add_edge_attr()
-        self.add_face_attr()
 
-    def get_mesh(self):
-        offset = np.random.uniform(-0.5, 0.5, 11)
+    def get_mesh_of_airfoil(self, lc, airfoil):
         gmsh.initialize()
+        gmsh.model.add("Airfoil Mesh")
         occ = gmsh.model.occ
 
-        # left spline
-        occ.addPoint(+0.0 + offset[0], +0.0 + offset[1], 0.0, self.lc, 1)
-        occ.addPoint(-3.0 + offset[2], -1.0 + offset[2], 0.0, self.lc, 2)
-        occ.addPoint(-1.0 + offset[3], -2.0 + offset[4], 0.0, self.lc, 3)
-        occ.addPoint(+0.0 + offset[5], -2.0 + offset[6], 0.0, self.lc, 4)
-        occ.addBSpline([1, 2, 3, 4,], degree=2, tag=101)
+        boundary_points = [
+            [0, 0, 0],
+            [1, 0, 0],
+            [1, 1, 0],
+            [0, 1, 0]
+        ]
+        boundary_tags = []
+        for i, point in enumerate(boundary_points):
+            boundary_tags.append(occ.addPoint(*point, lc, tag=i + 1))
+        boundary_lines = [
+            occ.addLine(boundary_tags[0], boundary_tags[1]),
+            occ.addLine(boundary_tags[1], boundary_tags[2]),
+            occ.addLine(boundary_tags[2], boundary_tags[3]),
+            occ.addLine(boundary_tags[3], boundary_tags[0])
+        ]
+        outer_loop = occ.addCurveLoop(boundary_lines)
 
-        # right spline
-        occ.addPoint(+0.0 + offset[0], +0.0 + offset[1], 0.0, self.lc, 5)
-        occ.addPoint(+2.0 + offset[7], -1.0 + offset[8], 0.0, self.lc, 6)
-        occ.addPoint(+1.0 + offset[9], -2.0 + offset[10], 0.0, self.lc, 7)
-        occ.addPoint(+0.0 + offset[5], -2.0 + offset[6], 0.0, self.lc, 8)
-        occ.addBSpline([5, 6, 7, 8,], degree=2, tag=102)
+        # Add airfoil geometry as a spline
+        suction_points = []
+        pressure_points = []
+        for i, point in enumerate(airfoil.suction_side_rotated):
+            suction_points.append(occ.addPoint(point[0], point[1], 0, lc))
+        for i, point in enumerate(airfoil.pressure_side_rotated):
+            pressure_points.append(occ.addPoint(point[0], point[1], 0, lc))
 
-        # outter boundary
-        occ.addPoint(self.maxBoundary, self.maxBoundary, 0.0, self.lc, 25)
-        occ.addPoint(self.maxBoundary, self.minBoundary, 0.0, self.lc, 26)
-        occ.addPoint(self.minBoundary, self.minBoundary, 0.0, self.lc, 27)
-        occ.addPoint(self.minBoundary, self.maxBoundary, 0.0, self.lc, 28)
-        occ.addLine(25, 26, tag=201)
-        occ.addLine(26, 27, tag=202)
-        occ.addLine(27, 28, tag=203)
-        occ.addLine(28, 25, tag=204)
+        suction_spline = occ.addSpline(suction_points)
+        pressure_spline = occ.addSpline(pressure_points)
+        airfoil_loop = occ.addCurveLoop([suction_spline, pressure_spline])
 
-        # outter boundary curve loop
-        occ.addCurveLoop([201, 202, 203, 204,], 1001)
-        # droplet curve loop
-        occ.addCurveLoop([101, 102], 1002)
-
-        occ.addPlaneSurface([1001, 1002], 10000)
-
+        # Add the plane surface
+        plane_surface = occ.addPlaneSurface([outer_loop, airfoil_loop])
         occ.synchronize()
+        if self.is_quad_mesh == True:
+            # Mesh settings
+            gmsh.option.setNumber("Mesh.Algorithm", 11)  # MeshAdapt algorithm
+            gmsh.option.setNumber("Mesh.RecombineAll", 1)
+            gmsh.option.setNumber("Mesh.Smoothing", 10)  # Smoothing steps
+
+        # Generate the mesh
         gmsh.model.mesh.generate(2)
-        gmsh.model.mesh.createFaces()
 
         node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-        node_tags = node_tags - 1
-        node_coords_array = np.array(node_coords).reshape(-1, 3)
-        nodes_tensor = torch.from_numpy(node_coords_array).float()
+        node_coords = np.array(node_coords).reshape(-1, 3)
+        node_coords_tensor = torch.from_numpy(node_coords).float()
+        node_tags = node_tags - 1  # Convert to 0-based indexing
 
-        faceTags, faceNodes = gmsh.model.mesh.getAllFaces(3)
-        faceTags = faceTags - 1
-        faceNodes = faceNodes - 1
-        face_nodes_array = np.array(faceNodes).reshape(-1, 3).astype(np.int64)
-        faces_tensor = torch.from_numpy(face_nodes_array.T)
-        faces_tensor = faces_tensor.to(torch.long)
+        element_types, element_tags, node_tags_per_element = gmsh.model.mesh.getElements()
 
+        faces = None
+
+        # Check for triangles and quads
+        for etype, etags, ntags in zip(element_types, element_tags, node_tags_per_element):
+            if etype == 2:  # Triangles
+                faces = np.array(ntags).reshape(-1, 3) - \
+                    1  # Convert to 0-based indexing
+                break
+            elif etype == 3:  # Quadrilaterals
+                faces = np.array(ntags).reshape(-1, 4) - \
+                    1  # Convert to 0-based indexing
+
+        if faces is None:
+            raise ValueError(
+                "No triangular or quadrilateral elements found in the mesh.")
+
+        # Convert faces to PyTorch format
+        faces_tensor = torch.tensor(faces.T.astype(
+            np.int64), dtype=torch.long)  # Transpose and cast to int64
+
+        # Remove isolated nodes and adjust new node indices in faces_tensor
         edge_index = self.face_to_edges(faces_tensor)
         new_edge_index, _, mask = remove_isolated_nodes(edge_index)
-        new_faces = self.adjust_face_indices(faces_tensor, mask)
-        num_nodes = nodes_tensor.size(0)
-        for i in range(num_nodes):
-            nodeTag = i+1
+
+        # Create a mapping for old to new indices
+        index_mapping = torch.full(
+            (node_coords_tensor.size(0),), -1, dtype=torch.long)
+        index_mapping[mask] = torch.arange(mask.sum(), dtype=torch.long)
+
+        # Adjust faces to remove invalid faces and remap indices
+        valid_faces_mask = (index_mapping[faces_tensor] >= 0).all(
+            dim=0)  # Check if all nodes in a face are valid
+        # Keep only valid faces
+        filtered_faces = faces_tensor[:, valid_faces_mask]
+        # Remap old indices to new indices
+        updated_faces = index_mapping[filtered_faces]
+       # Process node dimensions if needed
+        for i in range(node_coords_tensor.size(0)):
+            nodeTag = i + 1
             coord, _, dim, tag = gmsh.model.mesh.getNode(nodeTag)
-            nodes_tensor[i, 2] = dim
-        nodes = nodes_tensor[mask, :]
-        mesh = Data(x=nodes, edge_index=new_edge_index, faces=new_faces)
-        nodes_faces_ids = self.map_nodes_to_faces(mesh.faces)
-        mesh.nodes_faces_ids = nodes_faces_ids
-        mesh = self.getFaceCenterPoints(mesh)
-        gmsh.clear()
+            node_coords_tensor[i, 2] = dim
+ 
+        # Update node coordinates based on mask
+        new_node_coords = node_coords_tensor[mask, :]
+
         gmsh.finalize()
+
+        mesh = Data(x=new_node_coords, edge_index=new_edge_index,
+                    faces=updated_faces)
+
         return mesh
+
+    def face_to_edges(self, faces):
+        if faces.size()[0] == 3:
+            edges = torch.cat(
+                [faces[[0, 1], :], faces[[1, 2], :], faces[[2, 0], :]], dim=1)
+        if faces.size()[0] == 4:
+            edges = torch.cat([faces[[0, 1], :], faces[[1, 2], :], faces[[
+                              2, 3], :], faces[[3, 0], :]], dim=1)
+
+        edges = to_undirected(edges)
+        edges = edges.to(torch.long)
+        return edges
 
     def normalize_mesh_coordinates(self):
         nodeDim = self.mesh.x.size()[0]
-        transformValues = torch.zeros(nodeDim,dtype=torch.float)
+        transformValues = torch.zeros(nodeDim, dtype=torch.float)
 
-        xMin = (torch.min(self.mesh.x,dim=0)).values[0]
-        xMax = (torch.max(self.mesh.x,dim=0)).values[0]
-        yMin = (torch.min(self.mesh.x,dim=0)).values[1]
-        yMax = (torch.max(self.mesh.x,dim=0)).values[1]
+        xMin = (torch.min(self.mesh.x, dim=0)).values[0]
+        xMax = (torch.max(self.mesh.x, dim=0)).values[0]
+        yMin = (torch.min(self.mesh.x, dim=0)).values[1]
+        yMax = (torch.max(self.mesh.x, dim=0)).values[1]
 
-        transformValues[0]= xMin
-        transformValues[1]= xMax
-        transformValues[2]= yMin
-        transformValues[3]= yMax
+        transformValues[0] = xMin
+        transformValues[1] = xMax
+        transformValues[2] = yMin
+        transformValues[3] = yMax
 
-        normNodes      = torch.zeros((nodeDim,2),dtype=torch.float)
-        normNodes[:,0] = (self.mesh.x[:,0]-xMin)/(xMax-xMin)
-        normNodes[:,1] = (self.mesh.x[:,1]-yMin)/(yMax-yMin)
-        
-        num_center_nodes      = self.mesh.centerPoints.size()[0]
-        normCenterNodes       = torch.zeros((num_center_nodes,2),dtype=torch.float)
-        normCenterNodes[:,0]  = (self.mesh.centerPoints[:,0]-xMin)/(xMax-xMin)
-        normCenterNodes[:,1]  = (self.mesh.centerPoints[:,1]-yMin)/(yMax-yMin)
-        self.mesh.centerPoints    = normCenterNodes
-        self.mesh.x[:,0:2]        = normNodes
-    
-    def face_to_edges(self, faces):
-        if faces.size(0) == 3:
-            edges = torch.cat(
-                [faces[[0, 1], :], faces[[1, 2], :], faces[[2, 0], :]], dim=1)
-        elif faces.size(0) == 4:
-            edges = torch.cat(
-                [faces[[0, 1], :], faces[[1, 2], :], faces[[2, 3], :], faces[[3, 0], :]], dim=1)
+        normNodes = torch.zeros((nodeDim, 2), dtype=torch.float)
+        normNodes[:, 0] = (self.mesh.x[:, 0]-xMin)/(xMax-xMin)
+        normNodes[:, 1] = (self.mesh.x[:, 1]-yMin)/(yMax-yMin)
 
-        edges = to_undirected(edges)
-        return edges.to(torch.long)
+        # num_center_nodes = self.mesh.centerPoints.size()[0]
+        # normCenterNodes = torch.zeros((num_center_nodes, 2), dtype=torch.float)
+        # normCenterNodes[:, 0] = (self.mesh.centerPoints[:, 0]-xMin)/(xMax-xMin)
+        # normCenterNodes[:, 1] = (self.mesh.centerPoints[:, 1]-yMin)/(yMax-yMin)
+        # self.mesh.centerPoints = normCenterNodes
+        self.mesh.x[:, 0:2] = normNodes
 
-    def adjust_face_indices(self, faces, mask):
-        index_mapping = torch.full((mask.size(0),), -1, dtype=torch.long)
-        index_mapping[mask] = torch.arange(mask.sum())
-
-        valid_faces = ((index_mapping[faces] >= 0).all(dim=0))
-        filtered_faces = faces[:, valid_faces]
-        updated_faces = index_mapping[filtered_faces]
-
-        return updated_faces
-
-    def getFaceCenterPoints(self, mesh):
-        faces = mesh.faces
-        coordinates = mesh.x[:, 0:2]
-        num_faces = faces.shape[1]
-        barycenters = torch.zeros((num_faces, 2))
-
-        for i in range(num_faces):
-            vertices = faces[:, i]
-            vertex_coords = coordinates[vertices]
-            barycenter = torch.mean(vertex_coords, dim=0)
-            barycenters[i] = barycenter
-
-        mesh.centerPoints = barycenters
-        return mesh
-
-    def map_nodes_to_faces(self, faces):
+    def map_nodes_to_faces(self):
+        faces = self.mesh.faces
         node_to_faces = {}
         num_faces = faces.size(1)
 
@@ -166,36 +173,39 @@ class MeshGenerator:
 
         return node_to_faces
 
+   
     def add_edge_attr(self):
-        edges = self.mesh.edge_index
-        numberOfEdges = edges.size()[1]
-        edge_attr = torch.zeros([1, numberOfEdges], dtype=torch.long)
+        
+        # all edges which are part of only one face (triangle) are boundary edges
+        faces = self.mesh.faces
+        edge_index = self.mesh.edge_index
+        edges_of_faces = torch.cat([
+                    faces[0:2, :],  # Edges from vertex 0 to vertex 1
+                    faces[1:3, :],  # Edges from vertex 1 to vertex 2
+                    faces[[2, 0], :]  # Edges from vertex 2 back to vertex 0
+                ], dim=1)
+        edges_of_faces = torch.sort(edges_of_faces, dim=0).values
 
-        minBoundary = torch.min(self.mesh.x[:, 0])
-        maxBoundary = torch.max(self.mesh.x[:, 0])
+        edges_of_faces = edges_of_faces.T
 
-        for i in range(numberOfEdges):
-            node0 = self.mesh.x[edges[0, i], :]
-            node1 = self.mesh.x[edges[1, i], :]
-            deltaX = node0[0]-node1[0]
-            deltaY = node0[1]-node1[1]
-            dimNode0 = node0[2]
-            dimNode1 = node1[2]
+        unique_edges, counts = torch.unique(edges_of_faces, dim=0, return_counts=True)
+        boundary_mask = counts == 1
+        boundary_edges = unique_edges[boundary_mask]
 
-            if dimNode0 == 2 or dimNode1 == 2:
-                edge_attr[0, i] = 0
-            else:
-                if node0[0] == minBoundary or node0[0] == maxBoundary or node0[1] == minBoundary or node0[1] == maxBoundary or node1[0] == minBoundary or node1[0] == maxBoundary or node1[1] == minBoundary or node1[1] == maxBoundary:
-                    if deltaX != 0 and deltaY != 0:
-                        edge_attr[0, i] = 0
-                    else:
-                        edge_attr[0, i] = 1
+        interior_mask = counts == 2
+        interior_edges = unique_edges[interior_mask]
 
-                else:
-                    edge_attr[0, i] = 1
+        edge_attr = torch.zeros(edge_index.size(1), dtype=torch.long)
 
-        self.mesh.edge_attr = edge_attr
-
+        for boundary_edge in boundary_edges:
+            idx = torch.where(
+                (edge_index[0, :] == boundary_edge[0]) & (edge_index[1, :] == boundary_edge[1]) |
+                (edge_index[0, :] == boundary_edge[1]) & (edge_index[1, :] == boundary_edge[0])
+            )[0]
+            edge_attr[idx] = 1  # Mark as boundary edge
+   
+        return edge_attr
+   
     def add_face_attr(self):
 
         nodes = self.mesh.x
@@ -211,4 +221,23 @@ class MeshGenerator:
                     face_id = faces_of_node_i[j]
                     faces_attr[face_id] = 1
 
-        self.mesh.face_attr = faces_attr
+        #self.mesh.face_attr = faces_attr
+        return faces_attr
+
+    def getFaceCenterPoints(self):
+        mesh = self.mesh
+        faces = mesh.faces
+        coordinates = mesh.x[:, 0:2]
+        num_faces = faces.shape[1]
+        barycenters = torch.zeros((num_faces, 2))
+
+        for i in range(num_faces):
+            vertices = faces[:, i]
+            vertex_coords = coordinates[vertices]
+            barycenter = torch.mean(vertex_coords, dim=0)
+            barycenters[i] = barycenter
+
+        mesh.centerPoints = barycenters
+        return mesh
+
+

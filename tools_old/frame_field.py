@@ -14,72 +14,82 @@ class FrameField:
         self.generate_cross_field()
 
     def map_cross_vectors_to_reference_vector(self, angle_rad):
-        # pi = torch.tensor(math.pi)
+        pi = torch.tensor(math.pi)
 
-        pi = torch.pi        # if angle_rad < 0:
-        #     angle_rad = angle_rad + 2*pi
-        angle = angle_rad# % (pi/2)
-        
-        angles = torch.tensor([angle, angle + (pi/2), angle + (pi), angle + (3/2*pi)])
-        angles = angles % (2*pi)
+        if angle_rad < 0:
+            angle_rad = angle_rad + 2*pi
+        angle = angle_rad % (pi/2)
+        angles = torch.tensor(
+            [angle, angle + (pi/2), angle + (pi), angle + (3/2*pi)])
         ref_vec_of_cross = 4*torch.min(angles)
         return ref_vec_of_cross
 
-   
     def add_cross_at_boundaries(self):
-        
-        pi = torch.pi
-        mesh = self.mesh
-        num_nodes = mesh.x.size(0)
-        mask_boundaryEdges = mesh.edge_attr == 1
-        idx_boundaryNodes = torch.unique(mesh.edge_index[0, mask_boundaryEdges])
-        num_boundary_nodes = idx_boundaryNodes.size(0)
 
-        boundary_edges = mesh.edge_index[:, mask_boundaryEdges]
+        num_nodes = self.mesh.x.size(0)
+        mask_boundaryNodes = self.mesh.x[:, 2] != 2
+
+        mask_boundaryEdges = self.mesh.edge_attr == 1
+        boundary_edges = self.mesh.edge_index[:, mask_boundaryEdges[0]]
+        midpoint = torch.mean(self.mesh.x[:, :2], dim=0)
 
         frame_field_angle = torch.zeros((num_nodes), dtype=torch.float)
         frame_field_coords = torch.zeros((num_nodes, 2), dtype=torch.float)
+        normals = torch.zeros((num_nodes, 2), dtype=torch.float)
 
-        for i in range(num_boundary_nodes):
-            idx_current_node = idx_boundaryNodes[i]
+        for i in range(num_nodes):
+            if mask_boundaryNodes[i] == True:
+                boundary_edges_of_node = (
+                    torch.where(boundary_edges[0, :] == i))[0]
+                neighbours_idx = boundary_edges[1, boundary_edges_of_node]
 
-            boundary_edges_of_node = (torch.where(boundary_edges[0, :] == idx_current_node))[0]
-            neighbours_idx = boundary_edges[1, boundary_edges_of_node]
-            source_node = mesh.x[idx_current_node, 0:2]
-            destination_node0 = mesh.x[neighbours_idx[0], 0:2]
-            destination_node1 = mesh.x[neighbours_idx[1], 0:2]
+                source_node = self.mesh.x[i, 0:2]
+                destination_node0 = self.mesh.x[neighbours_idx[0], 0:2]
+                destination_node1 = self.mesh.x[neighbours_idx[1], 0:2]
+                edge0 = destination_node0 - source_node
+                edge1 = destination_node1 - source_node
 
-            edge0 = destination_node0 - source_node
+                #                length0           = torch.sqrt(torch.pow(destination_node0[0]-source_node[0],2)+torch.pow(destination_node0[1]-source_node[1],2))
+                #                length1           = torch.sqrt(torch.pow(destination_node1[0]-source_node[0],2)+torch.pow(destination_node1[1]-source_node[1],2))
+                #                length            = (length0+length1)/2
+                #                length            = length0
+                edge_midPoint = midpoint - source_node            # Calculate the angle
+                # Convert radians to degrees and adjust to the range 0 to 360
+                angle0 = (torch.atan2(edge0[1], edge0[0]))
+                # Convert radians to degrees and adjust to the range 0 to 360
+                angle1 = (torch.atan2(edge1[1], edge1[0]))
 
-            edge1 = destination_node1 - source_node
+                angle_midpoint = (torch.atan2(
+                    edge_midPoint[1], edge_midPoint[0]))
 
-            # Normalize the edges
-            edge0_normalized = edge0 / torch.norm(edge0,p=2)
-            edge1_normalized = edge1 / torch.norm(edge1,p=2)
+                angle = (angle0)  # +angle1) /2
 
-            # Combine normalized edges
-            edge_mid = edge0_normalized + edge1_normalized
-            edge_mid_normalized = edge_mid #/ torch.norm(edge_mid)  # Normalize the combined vector
+                diff_angle = torch.absolute(angle - angle_midpoint)
+                if diff_angle < torch.tensor(np.pi/2):
+                    if angle > torch.tensor(np.pi):
 
-            # Calculate the angle of the combined vector
-            angle = torch.atan2(edge_mid_normalized[1], edge_mid_normalized[0]) % (2*pi)
-            angle0 = torch.atan2(edge0_normalized[1], edge0_normalized[0]) % (2*pi)
-            angle1 = torch.atan2(edge1_normalized[1], edge1_normalized[0]) % (2*pi)
+                        angle -= torch.tensor(np.pi)
+                    else:
+                        angle += torch.tensor(np.pi)
+                if angle0 < 0:
+                    angle0 += torch.tensor(2*np.pi)
 
-            angle_diff = torch.abs((angle1 - angle0 + pi) % (2 * pi) - pi)
-            if 0.95 * (pi / 2) < angle_diff < 1.05 * (pi / 2):
-                ref_angle = self.map_cross_vectors_to_reference_vector(angle0)
+                if angle1 < 0:
+                    angle1 += torch.tensor(2*np.pi)
+
+                angle_ref_cross_vec = self.map_cross_vectors_to_reference_vector(
+                    angle)
+
+                frame_field_angle[i] = angle_ref_cross_vec
+                frame_field_coords[i, 0] = torch.cos(angle_ref_cross_vec)
+                frame_field_coords[i, 1] = torch.sin(angle_ref_cross_vec)
             else:
-                ref_angle = self.map_cross_vectors_to_reference_vector(angle)
-            # Store the result
-            frame_field_angle[i] = ref_angle
-            frame_field_coords[i, 0] = torch.cos(ref_angle)
-            frame_field_coords[i, 1] = torch.sin(ref_angle)
+                frame_field_angle[i] = 0
+                frame_field_coords[i, 0] = 0
+                frame_field_coords[i, 1] = 0
 
-
-            self.mesh.frame_field_angle = frame_field_angle
-            self.mesh.frame_field_coords = frame_field_coords
-
+        self.mesh.frame_field_angle = frame_field_angle
+        self.mesh.frame_field_coords = frame_field_coords
 
     def generate_cross_field(self):
         A, b, u = self.compute_initial_frame_field()
@@ -110,10 +120,8 @@ class FrameField:
         num_elements = self.mesh.faces.shape[1]
         nodes = self.mesh.x[:, 0:2]  # Shape: (num_nodes, 2)
         elements = self.mesh.faces.T  # Shape: (num_elements, 3)
-#        interior_nodes_indices = np.where(self.mesh.x[:, 2] == 2)[0]
-#        boundary_nodes_indices = np.where(self.mesh.x[:, 2] != 2)[0]
-        mask_boundaryEdges = self.mesh.edge_attr == 1
-        boundary_nodes_indices = torch.unique(self.mesh.edge_index[0, mask_boundaryEdges])
+        interior_nodes_indices = np.where(self.mesh.x[:, 2] == 2)[0]
+        boundary_nodes_indices = np.where(self.mesh.x[:, 2] != 2)[0]
         num_dofs = num_nodes * 2  # Anzahl der Freiheitsgrade (2 pro Knoten)
         A = np.zeros((num_dofs, num_dofs))
         b = np.zeros(num_dofs)
@@ -124,6 +132,7 @@ class FrameField:
             A_e = self.compute_local_stiffness_matrix(coords)
             b_e = np.zeros((6,))
 
+            # Globale Indizes für die Freiheitsgrade (2 pro Knoten)
             dof_indices = np.zeros(6, dtype=int)
             for i in range(3):
                 dof_indices[2*i] = 2 * nodes_indices[i]      # x-Komponente
