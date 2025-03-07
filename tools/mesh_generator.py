@@ -176,14 +176,30 @@ class MeshGenerator:
    
     def add_edge_attr(self):
         
+        face_kind = None
         # all edges which are part of only one face (triangle) are boundary edges
         faces = self.mesh.faces
+        if faces.size(0)==3:
+            face_kind = 'Triangles'
+        elif faces.size(0) == 4:
+            face_kind = 'Quads'
+        else:
+            print('non valid faces')
         edge_index = self.mesh.edge_index
-        edges_of_faces = torch.cat([
-                    faces[0:2, :],  # Edges from vertex 0 to vertex 1
-                    faces[1:3, :],  # Edges from vertex 1 to vertex 2
-                    faces[[2, 0], :]  # Edges from vertex 2 back to vertex 0
-                ], dim=1)
+        if face_kind == 'Triangles':
+            edges_of_faces = torch.cat([
+                        faces[0:2, :],  # Edges from vertex 0 to vertex 1
+                        faces[1:3, :],  # Edges from vertex 1 to vertex 2
+                        faces[[2, 0], :]  # Edges from vertex 2 back to vertex 0
+                    ], dim=1)
+        if face_kind == 'Quads':
+            edges_of_faces = torch.cat([
+                        faces[0:2, :],  # Edges from vertex 0 to vertex 1
+                        faces[1:3, :],  # Edges from vertex 1 to vertex 2
+                        faces[2:4, :],  # Edges from vertex 1 to vertex 2
+                        faces[[3, 0], :]  # Edges from vertex 2 back to vertex 0
+                    ], dim=1)       
+
         edges_of_faces = torch.sort(edges_of_faces, dim=0).values
 
         edges_of_faces = edges_of_faces.T

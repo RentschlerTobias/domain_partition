@@ -8,7 +8,7 @@ class NACA_airfoil:
         profils = ['2412', '6412']
         self.naca_profil = profils[np.random.randint(2)]
 
-        scale_range = (0.7, 0.95)
+        scale_range = (0.4, 0.95)
 
         self.m = int(self.naca_profil[0])/100
         self.p = int(self.naca_profil[1])/10
@@ -16,7 +16,7 @@ class NACA_airfoil:
         self.c = 1.0
 
         x = np.linspace(0, 1, 100)
-        self.random_angle = 0.2 * np.pi * np.random.rand()
+        self.random_angle = 1.9*np.pi * np.random.rand()
 
         self.suction_side, self.pressure_side = self.naca4(x)
 

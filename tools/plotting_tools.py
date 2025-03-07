@@ -3,15 +3,17 @@ def plot_egdes(mesh, output_file="./figures/mesh_boundary_edges.png"):
     import matplotlib.pyplot as plt
     import numpy as np
 
+    plt.figure(figsize=(5, 5))
     for i in range(mesh.edge_index.size(1)):
         p1 = mesh.x[mesh.edge_index[0,i]]
         p2 = mesh.x[mesh.edge_index[1,i]]
         if mesh.edge_attr[i] == 1:
             color = 'r'
-            plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
-        else: color = 'k'
+        else:
+            color = 'k'
+        plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
     plt.savefig(output_file, dpi=300)
-
+    print(f'mesh image saved in {output_file}')
 def plot_nodes(mesh, output_file="./figures/mesh_nodes.png"):
 
     import matplotlib.pyplot as plt
