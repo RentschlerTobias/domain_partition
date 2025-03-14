@@ -8,20 +8,20 @@ class StreamlineGenerator:
         self.mesh = self.get_streamlines(separatrixGenerator.mesh) 
 
     def get_streamlines(self,mesh):
-        streamlines = []
+        streamlines  = mesh.streamlines
         mesh = self.add_face_streamline_labels(mesh)
        
         for i in range(len(mesh.separatrices)):
-           streamline           = []
            
-           start_coords         = (mesh.separatrices[i]['coordinates']).to(torch.float)
-           start_direction      = (mesh.separatrices[i]['vector']).to(torch.float)
-           singularity_coords   = mesh.separatrices[i]['singularity_coords']
-           
-           streamline.append(singularity_coords.numpy())
-           streamline.append(start_coords.numpy())
-           streamline = self.runge_kutta_heun_integrate_streamline(start_coords,start_direction,mesh,streamline)
-           streamlines.append(streamline)
+            streamline = []
+            start_coords         = (mesh.separatrices[i]['coordinates']).to(torch.float)
+            start_direction      = (mesh.separatrices[i]['vector']).to(torch.float)
+            singularity_coords   = mesh.separatrices[i]['singularity_coords']
+            
+            streamline.append(singularity_coords.numpy())
+            streamline.append(start_coords.numpy())
+            streamline = self.runge_kutta_heun_integrate_streamline(start_coords,start_direction,mesh,streamline)
+            streamlines.append(streamline)
         mesh.streamlines = streamlines
 
         return mesh
@@ -100,43 +100,54 @@ class StreamlineGenerator:
             predicted_face_id = self.find_containing_face(predictor_point, mesh) 
             
             if predicted_face_id is None:
+                streamline.append(predictor_point.numpy())
                 break
-                
-            
-            if mesh.singularities[predicted_face_id] != 0:
-                if predicted_face_id != init_face_idx:# reached other singularity
-                    break
             if predicted_face_id != current_face_idx:
                 mesh.face_streamline_labels[predicted_face_id] = 1
-            
-            # Evaluate the vector field at the predicted point
+           # Evaluate the vector field at the predicted point
             v_predictor,mesh = self.get_best_cross_vector(predictor_point, v_current, mesh,predicted_face_id)
+
             if v_predictor is None:
-    #             print("Predictor point is outside the mesh.")
                 break
             v_predictor = v_predictor / torch.norm(v_predictor)  # Ensure unit vector
 
-            # Corrector step: Average the vector fields
             average_direction = (v_current + v_predictor) / 2.0
             average_direction = average_direction / torch.norm(average_direction)  # Normalize
+            if mesh.singularities[predicted_face_id] != 0:
+                if predicted_face_id != init_face_idx:# reached other singularity 
+                    coord_singularity = torch.tensor(mesh.singularities_coords[predicted_face_id], dtype=torch.float32)
 
-            # Update the current point
+                    direction_to_singularity = coord_singularity - current_point
+                    angle_diff = torch.atan2(direction_to_singularity[1],direction_to_singularity[0])-torch.atan2(average_direction[1],average_direction[0])
+                    if torch.abs(angle_diff) < torch.pi/8:
+                        streamline.append(coord_singularity.numpy())
+                        break
+                    print(coord_singularity)
+
+
             next_point = current_point + step_size * average_direction
 
             # Check if the next point is outside the mesh
             if not self.is_point_inside_mesh(next_point, mesh):
-    #             print("Next point is outside the mesh.")
+                streamline.append(next_point.numpy())
                 break
             new_face_id = self.find_containing_face(next_point, mesh) 
             
             
             if new_face_id is None:
-                    break
+                streamline.append(next_point.numpy())
+                break
             
             if new_face_id != init_face_idx:
                 if mesh.singularities[new_face_id] != 0:
-                    # reached other singularity
-                    break
+                        coord_singularity = torch.tensor(mesh.singularities_coords[new_face_id], dtype=torch.float32)
+
+                        direction_to_singularity = coord_singularity - next_point
+                        angle_diff = torch.atan2(direction_to_singularity[1],direction_to_singularity[0])-torch.atan2(average_direction[1],average_direction[0])
+                        if torch.abs(angle_diff) < torch.pi/8:
+                            streamline.append(coord_singularity.numpy())
+                            break
+
             if  new_face_id != predicted_face_id:
                 mesh.face_streamline_labels[new_face_id] = 1
                     
@@ -144,7 +155,6 @@ class StreamlineGenerator:
             current_point = next_point
             current_direction = average_direction
             current_face_idx = new_face_id
-            # Store the point
             streamline.append(current_point.numpy())
 
         return np.array(streamline)

@@ -3,12 +3,13 @@ import numpy as np
 class SeparatrixGenerator:
     def __init__(self,mesh):
         self.mesh = mesh
-        self.detect_singularities()
+        self.detect_faces_with_singularities()
+        self.mesh.singularities_coords = {}  
+        self.get_singularities_coords()  
         self.get_separatrices_from_singularity()
-
         self.get_separatrices_from_c0_nodes()
 
-    def detect_singularities(self):
+    def detect_faces_with_singularities(self):
         mesh = self.mesh 
         num_faces = mesh.faces.size(1)
         
@@ -46,6 +47,35 @@ class SeparatrixGenerator:
             print('number of singularities is correct')
         return mesh 
 
+    def get_singularities_coords(self):
+
+        num_faces = self.mesh.faces.size(1)
+        face_all_ids = torch.arange(num_faces)
+        face_ids = face_all_ids[self.mesh.singularities != 0]
+
+        for i in range(face_ids.size(0)):
+            face_id = face_ids[i].item()  # Convert to Python integer
+
+            face = self.mesh.faces[:, face_id]  # Get face indices
+            vectors = self.mesh.u[face]  # Vector field at the face
+            nodes = self.mesh.x[face, 0:2]  # Extract node coordinates (x, y)
+
+            v0, v1, v2 = vectors
+            p0, p1, p2 = nodes
+
+            # Define the interpolation equation: V(P) = alpha * v0 + beta * v1 + gamma * v2
+            A = torch.stack([v0 - v2, v1 - v2], dim=1)  
+            b = -v2  
+
+            try:
+                coeffs = torch.linalg.solve(A, b)
+                singularity_location = p2 + coeffs[0] * (p0 - p2) + coeffs[1] * (p1 - p2)
+
+            except RuntimeError:
+                singularity_location = torch.mean(nodes, dim=0)
+
+            # Store in self.mesh.singularities_coords
+            self.mesh.singularities_coords[face_id] = singularity_location.tolist()
 
 
     def get_separatrices_from_singularity(self):
@@ -56,7 +86,7 @@ class SeparatrixGenerator:
         num_faces = mesh.faces.size(1)
         face_all_ids = torch.arange(num_faces)
         face_ids = face_all_ids[mesh.singularities != 0]
-        
+
         tolerance = 1e-3
         angle_tolerance = 1e-2
         
@@ -69,8 +99,9 @@ class SeparatrixGenerator:
             ref_vecs = mesh.u[current_face, :]
             ref_vecs = ref_vecs.to(torch.float)
 
-            singularity_coords = self.get_singularities_coords(face_id)
-        
+            
+            singularity_coords = torch.tensor(self.mesh.singularities_coords[face_id.item()], dtype=torch.float32)
+ 
             num_of_ts = 10000
             t = torch.arange(0, 1, 1 / num_of_ts)
 
@@ -108,9 +139,45 @@ class SeparatrixGenerator:
                                 'singularity_coords': singularity_coords,
                                 'face_id': face_id
                             })
-
         self.mesh.separatrices = separatrices
+    
+    def is_boundary_node_regular(self, node_id):
+        
+        #function checks if the boundary edges aligns with the cross vector, if it does no streamlies execpt the boundaries needs to generated
+        tol = 1e-3
+        mask_boundaryEdges = self.mesh.edge_attr == 1
 
+        boundary_edges         = self.mesh.edge_index[:, mask_boundaryEdges]
+        boundary_edges_of_node = (torch.where(boundary_edges[0, :] == node_id))[0]
+        neighbours_idx         = boundary_edges[1, boundary_edges_of_node]
+
+        source_node       = self.mesh.x[node_id, 0:2]
+        destination_node0 = self.mesh.x[neighbours_idx[0], 0:2]
+        destination_node1 = self.mesh.x[neighbours_idx[1], 0:2]
+
+        edge0 = destination_node0 - source_node
+        edge1 = destination_node1 - source_node
+        edges = [edge0,edge1]
+        ref_vec = self.mesh.u[node_id]
+        base_angle = torch.atan2(ref_vec[1], ref_vec[0])
+        if  base_angle <0:
+            base_angle =  base_angle + 2*torch.pi
+        edges_aligns = [False,False]
+
+        for i in range(2):
+            edge = edges[i]
+            angle_edge = torch.atan2(edge[1],edge[0])
+            if  angle_edge <0:
+                angle_edge =  angle_edge + 2*torch.pi
+            for k in range(4):
+                angle_cross = base_angle/4 +k*torch.pi/2
+                if torch.abs(angle_cross -angle_edge) < tol:
+                    edges_aligns[i] = True                                
+                    break
+        if edges_aligns[0] == True and edges_aligns[1] == True:
+            return True
+        else:
+            return False
 
     def get_separatrices_from_c0_nodes(self):
         mesh = self.mesh
@@ -126,7 +193,9 @@ class SeparatrixGenerator:
         step = 0.001
         for i, node_id_tensor in enumerate(c0_node_ids):
             node_id = node_id_tensor.item()
-            
+            regular_boundary_node =self.is_boundary_node_regular(node_id) 
+            if  regular_boundary_node== True:
+                continue
             source_node = mesh.x[node_id, 0:2]
             ref_vec = mesh.u[node_id]
             base_angle = torch.atan2(ref_vec[1], ref_vec[0])
@@ -193,30 +262,6 @@ class SeparatrixGenerator:
         return best_vector,mesh
 
     
-    def get_singularities_coords(self,face_id):
-        # Computes the singularity location in a triangle using bilinear interpolation.
-        # Solves for the point where the interpolated vector field is (0,0).
-        face = self.mesh.faces[:, face_id]  
-        vectors = self.mesh.u[face]  
-        nodes = self.mesh.x[face, 0:2]
-
-        v0, v1, v2 = vectors
-        p0, p1, p2 = nodes
-
-        # Define the interpolation equation: V(P) = alpha * v0 + beta * v1 + gamma * v2
-        # We solve for (alpha, beta, gamma) such that V(P) = (0, 0) (singularity condition)
-        A = torch.stack([v0 - v2, v1 - v2], dim=1)  
-        b = -v2  
-
-        try:
-            coeffs = torch.linalg.solve(A, b)
-
-            singularity_location = p2 + coeffs[0] * (p0 - p2) + coeffs[1] * (p1 - p2)
-
-        except RuntimeError:
-            singularity_location = torch.mean(nodes, dim=0)
-
-        return singularity_location
 
     def compute_barycentric_coordinates(self,point, vertices):
 

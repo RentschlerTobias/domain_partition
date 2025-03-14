@@ -21,7 +21,6 @@ class MeshGenerator:
         gmsh.initialize()
         gmsh.model.add("Airfoil Mesh")
         occ = gmsh.model.occ
-
         boundary_points = [
             [0, 0, 0],
             [1, 0, 0],
@@ -38,7 +37,16 @@ class MeshGenerator:
             occ.addLine(boundary_tags[3], boundary_tags[0])
         ]
         outer_loop = occ.addCurveLoop(boundary_lines)
-
+        streamlines =[]
+        num_points = len(boundary_points)
+        for i in range(num_points):
+            start_point = boundary_points[i][:2]  # (x, y) of the first point
+            end_point   = boundary_points[(i + 1) % num_points][:2]  # (x, y) of the next point
+            boundary_streamline = []
+            boundary_streamline.append(np.array(start_point))  # First point
+            boundary_streamline.append(np.array(end_point))    # Second point
+            
+            streamlines.append(np.array(boundary_streamline))
         # Add airfoil geometry as a spline
         suction_points = []
         pressure_points = []
@@ -51,6 +59,8 @@ class MeshGenerator:
         pressure_spline = occ.addSpline(pressure_points)
         airfoil_loop = occ.addCurveLoop([suction_spline, pressure_spline])
 
+        streamlines.append(np.array(airfoil.suction_side_rotated))
+        streamlines.append(np.array(airfoil.pressure_side_rotated))
         # Add the plane surface
         plane_surface = occ.addPlaneSurface([outer_loop, airfoil_loop])
         occ.synchronize()
@@ -118,7 +128,7 @@ class MeshGenerator:
         gmsh.finalize()
 
         mesh = Data(x=new_node_coords, edge_index=new_edge_index,
-                    faces=updated_faces)
+                    faces=updated_faces, streamlines = streamlines)
 
         return mesh
 

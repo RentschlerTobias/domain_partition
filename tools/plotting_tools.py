@@ -102,12 +102,12 @@ def plot_streamlines(mesh,output_file="./figures/domain_partition.png"):
     for face in mesh.faces.T:  # Transposing to iterate through each face
         triangle = nodes[face, :]
         plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
-    for e in range(edges.size(1)):
-        if mesh.edge_attr[e]==1:
-            n1 = mesh.x[edges[0,e],:]
-            n2 = mesh.x[edges[1,e],:]
-            plt.plot([n1[0],n2[0]],[n1[1],n2[1]],'r')
-    # Plot each streamline
+    # for e in range(edges.size(1)):
+    #     if mesh.edge_attr[e]==1:
+    #         n1 = mesh.x[edges[0,e],:]
+    #         n2 = mesh.x[edges[1,e],:]
+    #         plt.plot([n1[0],n2[0]],[n1[1],n2[1]],'r')
+    # # Plot each streamline
     for streamline in streamlines:
         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
         plt.plot(streamline[:, 0], streamline[:, 1],'r')

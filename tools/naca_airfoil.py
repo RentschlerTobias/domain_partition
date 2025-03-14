@@ -16,7 +16,7 @@ class NACA_airfoil:
         self.c = 1.0
 
         x = np.linspace(0, 1, 100)
-        self.random_angle = 0.2 * np.pi * np.random.rand()
+        self.random_angle = 1.7*np.pi + 0.1 * np.pi * np.random.rand()
 
         self.suction_side, self.pressure_side = self.naca4(x)
 
