@@ -117,6 +117,22 @@ def plot_vector_field(mesh, init = False, output_file="./figures/vector_field.pn
     plt.savefig(output_file, dpi=300)
     #plt.close()
 
+def plot_faces(mesh,output_file="./figures/faces.png"):
+    import matplotlib.pyplot as plt
+
+    nodes = mesh.x[:, 0:2]  
+    plt.figure(figsize=(8, 8))
+    for face_ids in mesh.face.T: 
+        face = nodes[face_ids, :]
+        plt.fill(face[:, 0], face[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
+   
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.grid(True)
+    
+    plt.savefig(output_file, dpi=300)
+
 
 import matplotlib.pyplot as plt
 
