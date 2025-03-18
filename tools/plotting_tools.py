@@ -1,3 +1,35 @@
+def plot_intersections(mesh,output_file="./figures/streamline_intersections.png"):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    streamlines = mesh.streamlines
+    nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+    edges = mesh.edge_index
+    # Create a figure for plotting
+    plt.figure(figsize=(8, 8))
+    
+    # Plot the mesh by drawing the triangles
+    for face in mesh.faces.T:  # Transposing to iterate through each face
+        triangle = nodes[face, :]
+        plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
+    
+    for streamline in streamlines:
+        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
+        plt.plot(streamline[:, 0], streamline[:, 1],'r')
+    try:
+            for i in range(len(mesh.streamline_intersections)):
+                intersection = mesh.streamline_intersections[i]
+                plt.plot(intersection[0],intersection[1],'ok')
+    except:
+        print('no streamline intersections')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Streamlines over Mesh')
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.grid(True)
+    
+    plt.savefig(output_file, dpi=300)
+
 def plot_egdes(mesh, output_file="./figures/mesh_boundary_edges.png"):
 
     import matplotlib.pyplot as plt

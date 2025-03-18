@@ -17,7 +17,8 @@ class StreamlineGenerator:
             start_coords         = (mesh.separatrices[i]['coordinates']).to(torch.float)
             start_direction      = (mesh.separatrices[i]['vector']).to(torch.float)
             singularity_coords   = mesh.separatrices[i]['singularity_coords']
-            
+            if  start_direction is None:
+                print('start_direction is None',start_direction) 
             streamline.append(singularity_coords.numpy())
             streamline.append(start_coords.numpy())
             streamline = self.runge_kutta_heun_integrate_streamline(start_coords,start_direction,mesh,streamline)
