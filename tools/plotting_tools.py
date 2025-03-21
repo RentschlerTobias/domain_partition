@@ -30,7 +30,7 @@ def plot_intersections(mesh,output_file="./figures/streamline_intersections.png"
     
     plt.savefig(output_file, dpi=300)
 
-def plot_egdes(mesh, output_file="./figures/mesh_boundary_edges.png"):
+def plot_boundary_egdes(mesh, output_file="./figures/mesh_boundary_edges.png"):
 
     import matplotlib.pyplot as plt
     import numpy as np
@@ -43,6 +43,19 @@ def plot_egdes(mesh, output_file="./figures/mesh_boundary_edges.png"):
             plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
         else: color = 'k'
     plt.savefig(output_file, dpi=300)
+
+def plot_egdes(mesh, output_file="./figures/edges_random_colored.png"):
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    for i in range(mesh.edge_index.size(1)):
+        p1 = mesh.x[mesh.edge_index[0,i]]
+        p2 = mesh.x[mesh.edge_index[1,i]]
+        color = np.random.rand(3,) #generate random rgb values
+        plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
+    plt.savefig(output_file, dpi=300)
+
 
 def plot_nodes(mesh, output_file="./figures/mesh_nodes.png"):
 
@@ -119,13 +132,15 @@ def plot_vector_field(mesh, init = False, output_file="./figures/vector_field.pn
 
 def plot_faces(mesh,output_file="./figures/faces.png"):
     import matplotlib.pyplot as plt
-
+    import numpy as np
+    
     nodes = mesh.x[:, 0:2]  
     plt.figure(figsize=(8, 8))
     for face_ids in mesh.face.T: 
         face = nodes[face_ids, :]
-        plt.fill(face[:, 0], face[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
-   
+        face_color = np.random.rand(3,) #generate random rgb values
+        plt.fill(face[:, 0], face[:, 1], color = face_color,edgecolor='gray',  linewidth=0.5)
+    
     plt.xlabel('X')
     plt.ylabel('Y')
     plt.gca().set_aspect('equal', adjustable='box')
@@ -134,7 +149,6 @@ def plot_faces(mesh,output_file="./figures/faces.png"):
     plt.savefig(output_file, dpi=300)
 
 
-import matplotlib.pyplot as plt
 
 def plot_streamlines(mesh,output_file="./figures/domain_partition.png"):
     import matplotlib.pyplot as plt
@@ -150,12 +164,7 @@ def plot_streamlines(mesh,output_file="./figures/domain_partition.png"):
     for face in mesh.faces.T:  # Transposing to iterate through each face
         triangle = nodes[face, :]
         plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
-    # for e in range(edges.size(1)):
-    #     if mesh.edge_attr[e]==1:
-    #         n1 = mesh.x[edges[0,e],:]
-    #         n2 = mesh.x[edges[1,e],:]
-    #         plt.plot([n1[0],n2[0]],[n1[1],n2[1]],'r')
-    # # Plot each streamline
+
     for streamline in streamlines:
         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
         plt.plot(streamline[:, 0], streamline[:, 1],'r')

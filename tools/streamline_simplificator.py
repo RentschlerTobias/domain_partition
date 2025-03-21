@@ -3,22 +3,129 @@ import numpy as np
 from collections import defaultdict
 import networkx as nx
 import torch
-
+from sklearn.cluster import DBSCAN
+from torch._prims_common import dtype_to_type
+from torch_geometric.data import Data
 
 class StreamlineSimplificator:
     def __init__(self,mesh):
+
         self.mesh = mesh
-        self.streamline_splines = self.get_streamlines_as_splines()
-        self.intersection_data  = self.find_all_intersections()
-        self.quad_edges = self.split_splines_at_intersections(self.intersection_data)
+        self.streamline_splines            = self.get_streamlines_as_splines()
+        self.intersection_data             = self.find_all_intersections()
+        self.mesh.streamline_intersections = self.intersection_data[0]['points']
+        self.quad_edges                    = self.split_splines_at_intersections(self.intersection_data)
 
         self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
-        self.faces =  self.get_faces()
+        self.quad_mesh =  self.get_mesh()
         
-        # self.quad_mesh = self.get_quad_mesh()
+    
+    def get_mesh(self):
 
-    # def get_quad_mesh(self):
+        nodes           = torch.tensor(self.nodes_subdomain)
 
+        temporary_faces = self.get_faces()
+        faces            = self.delete_invalid_faces(temporary_faces,nodes)
+
+        edge_index = torch.cat([faces[:2],faces[1:3],faces[2:4],faces[::2],faces[1::2],faces[::3],], dim=1)
+        mesh       = Data(x = nodes, edge_index = edge_index,face = faces)
+
+        return mesh
+    
+    # find_containing_face is a duplicate function of streamline generator
+    def find_containing_face(self,point):
+         
+        nodes           = self.mesh.x[:,0:2]
+        node_to_face_ID = self.mesh.nodes_faces_ids
+        faces           = self.mesh.faces
+        
+        distances        = np.linalg.norm(nodes - point, axis=1)
+        closest_node_idx = np.argmin(distances)
+        possible_faces   = node_to_face_ID[closest_node_idx]
+        
+        for face_idx in possible_faces:
+            face_vertices = faces[:,face_idx]
+            triangle_vertices = nodes[face_vertices,0:2]
+            if self.is_point_in_triangle(point, triangle_vertices):
+                return face_idx
+
+        return None
+
+    # is_point_in_triangle is a duplicate function of streamline generator
+    def is_point_in_triangle(self,point, vertices):
+        v0 = vertices[2] - vertices[0]
+        v1 = vertices[1] - vertices[0]
+        v2 = point - vertices[0]
+
+        # Compute dot products
+        dot00 = torch.dot(v0, v0)
+        dot01 = torch.dot(v0, v1)
+        dot02 = torch.dot(v0, v2)
+        dot11 = torch.dot(v1, v1)
+        dot12 = torch.dot(v1, v2)
+
+        # Compute barycentric coordinates
+        denom = dot00 * dot11 - dot01 * dot01
+        if denom == 0:
+            return False  # Degenerate triangle
+
+        invDenom = 1 / denom
+        u = (dot11 * dot02 - dot01 * dot12) * invDenom
+        v = (dot00 * dot12 - dot01 * dot02) * invDenom
+
+        # Check if point is inside the triangle
+        return (u >= 0) and (v >= 0) and (u + v <= 1)
+
+   
+    def delete_invalid_faces(self, faces_to_check, nodes):
+        faces = faces_to_check
+        num_faces = faces.size(1)
+        
+        invalid_faces = torch.zeros(num_faces)
+        
+        # Get the dtype of your nodes to ensure consistency
+        nodes_dtype = nodes.dtype
+        
+        for i in range(num_faces):
+            # Get the vertices of the current quad face
+            face_vertices = nodes[faces[:, i]]
+            # Calculate the interior angles of the quad
+            angles = []
+            
+            # For each vertex, calculate the angle
+            for j in range(4):
+                # Get the previous, current, and next vertices (with wrapping)
+                prev = face_vertices[(j-1) % 4]
+                curr = face_vertices[j]
+                next_v = face_vertices[(j+1) % 4]
+                
+                # Calculate vectors with explicit dtype
+                v1 = torch.tensor([prev[0] - curr[0], prev[1] - curr[1]], dtype=nodes_dtype)
+                v2 = torch.tensor([next_v[0] - curr[0], next_v[1] - curr[1]], dtype=nodes_dtype)
+                
+                # Calculate the angle using dot product and magnitude
+                dot_product = torch.dot(v1, v2)
+                magnitude = torch.norm(v1) * torch.norm(v2)
+                
+                # Avoid division by zero
+                if magnitude < 1e-10:
+                    angle = 0
+                else:
+                    # Get the angle in radians and convert to degrees
+                    angle = torch.acos(torch.clamp(dot_product / magnitude, -1.0, 1.0))
+                    angle = angle * 180 / torch.pi
+                
+                angles.append(angle.item())
+            
+            # Check if any angle is close to or greater than 180 degrees
+            max_angle = max(angles)
+            if max_angle > 175:  # Threshold for "close to 180 degrees"
+                invalid_faces[i] = 1
+       
+        mask_valid_faces = invalid_faces == 0
+        valid_faces = faces[:, mask_valid_faces]
+    
+        return valid_faces
     def get_faces(self):
         num_edges = self.edges_subdomain[0].size
         edges = []
@@ -30,7 +137,18 @@ class StreamlineSimplificator:
         graph.add_edges_from(edges)
         
         faces = list(nx.simple_cycles(graph, length_bound=4))
-        return faces 
+         
+        quad_faces = []
+
+        for i in range(len(faces)):
+            if len(faces[i])==4:
+                quad_faces.append(faces[i])
+
+        if len(quad_faces) ==0:
+            print('non quad face found')
+        
+
+        return torch.tensor(quad_faces).T
 
     def get_streamlines_as_splines(self):
         splines = []
@@ -310,6 +428,7 @@ class StreamlineSimplificator:
     def extract_subdomain_arrays(self, intersection_data):
         """
         Extracts intersection data into NumPy arrays for subdomain creation.
+        Improved version that handles spline start/end points as intersections.
         
         Parameters:
         intersection_data: Tuple containing intersection information
@@ -332,6 +451,24 @@ class StreamlineSimplificator:
         edges_list = []
         edge_points = []
         
+        # Get all endpoint coordinates of splines
+        spline_endpoints = {}
+        for spline_idx, spline in enumerate(self.streamline_splines):
+            if spline is None:
+                continue
+            tck, u = spline
+            # Get start and end points
+            start_point = tuple(np.array(splev(0, tck)).reshape(2))
+            end_point = tuple(np.array(splev(1, tck)).reshape(2))
+            spline_endpoints[spline_idx] = (start_point, end_point)
+        
+        # Function to find the closest point index in our points list
+        def find_closest_point_idx(point, tolerance=1e-6):
+            for idx, p in enumerate(points):
+                if np.linalg.norm(np.array(point) - np.array(p)) < tolerance:
+                    return idx
+            return None
+        
         # Process each spline
         for spline_idx in spline_intersections:
             # Get the spline data
@@ -340,21 +477,87 @@ class StreamlineSimplificator:
             # Get all intersection points for this spline, sorted by parameter t
             intersections = sorted(spline_intersections[spline_idx], key=lambda x: x[1])
             
+            # Check if start point is an intersection in any spline
+            start_point = spline_endpoints[spline_idx][0]
+            end_point = spline_endpoints[spline_idx][1]
+            
+            # Check if start point is close to first intersection
+            start_in_intersections = False
+            if intersections:
+                first_t = intersections[0][1]
+                start_in_intersections = abs(first_t) < 0.001
+            
+            # Check if end point is close to last intersection
+            end_in_intersections = False
+            if intersections:
+                last_t = intersections[-1][1]
+                end_in_intersections = abs(last_t - 1) < 0.001
+            
+            # Find point indices for start and end points
+            start_idx = find_closest_point_idx(start_point)
+            end_idx = find_closest_point_idx(end_point)
+            
             # Create edges between consecutive intersection points on the same spline
-            for i in range(len(intersections) - 1):
-                point_idx1, t1 = intersections[i]
-                point_idx2, t2 = intersections[i + 1]
-                
-                # Skip if they're too close
-                if abs(t2 - t1) < 0.001:
-                    continue
+            if intersections:
+                for i in range(len(intersections) - 1):
+                    point_idx1, t1 = intersections[i]
+                    point_idx2, t2 = intersections[i + 1]
                     
-                # Add the edge indices
-                edges_list.append([point_idx1, point_idx2])
+                    # # Skip if they're too close
+                    # if abs(t2 - t1) < 0.001:
+                    #     continue
+                        
+                    # Add the edge indices
+                    edges_list.append([point_idx1, point_idx2])
+                    
+                    # Generate points along this edge segment
+                    num_points = max(10, int((t2 - t1) * 50))  # Adjust number of points based on parameter length
+                    t_values = np.linspace(t1, t2, num_points)
+                    edge_segment_points = np.array(splev(t_values, tck)).T
+                    edge_points.append(edge_segment_points)
                 
-                # Generate points along this edge segment
-                num_points = max(10, int((t2 - t1) * 50))  # Adjust number of points based on parameter length
-                t_values = np.linspace(t1, t2, num_points)
+                # Handle start point to first intersection if needed
+                if start_idx is not None and not start_in_intersections and intersections[0][1] > 0.001:
+                    point_idx1 = start_idx
+                    point_idx2, t2 = intersections[0]
+                    edges_list.append([point_idx1, point_idx2])
+                    t_values = np.linspace(0, t2, max(10, int(t2 * 50)))
+                    edge_segment_points = np.array(splev(t_values, tck)).T
+                    edge_points.append(edge_segment_points)
+                
+                # Handle last intersection to end point if needed
+                if end_idx is not None and not end_in_intersections and intersections[-1][1] < 0.999:
+                    point_idx1, t1 = intersections[-1]
+                    point_idx2 = end_idx
+                    edges_list.append([point_idx1, point_idx2])
+                    t_values = np.linspace(t1, 1, max(10, int((1 - t1) * 50)))
+                    edge_segment_points = np.array(splev(t_values, tck)).T
+                    edge_points.append(edge_segment_points)
+            
+            # If no intersections on this spline, but start/end points are intersections elsewhere,
+            # create an edge between them
+            elif start_idx is not None and end_idx is not None:
+                edges_list.append([start_idx, end_idx])
+                t_values = np.linspace(0, 1, 50)
+                edge_segment_points = np.array(splev(t_values, tck)).T
+                edge_points.append(edge_segment_points)
+        
+        # Check for any missing edges between intersection points
+        # Find splines that might have been missed
+        for spline_idx, spline in enumerate(self.streamline_splines):
+            if spline is None or spline_idx in spline_intersections:
+                continue
+            
+            # Get endpoints
+            start_point, end_point = spline_endpoints[spline_idx]
+            start_idx = find_closest_point_idx(start_point)
+            end_idx = find_closest_point_idx(end_point)
+            
+            # If both endpoints are intersections, add an edge between them
+            if start_idx is not None and end_idx is not None:
+                edges_list.append([start_idx, end_idx])
+                tck, u = spline
+                t_values = np.linspace(0, 1, 50)
                 edge_segment_points = np.array(splev(t_values, tck)).T
                 edge_points.append(edge_segment_points)
         
@@ -365,4 +568,3 @@ class StreamlineSimplificator:
             edges_subdomain = np.zeros((2, 0), dtype=int)
         
         return edges_subdomain, nodes_subdomain, edge_points
-        
