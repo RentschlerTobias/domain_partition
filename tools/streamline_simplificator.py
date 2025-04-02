@@ -1,4 +1,4 @@
-from scipy.interpolate import make_interp_spline, splprep, splev
+from scipy.interpolate import splprep, splev
 import numpy as np
 from collections import defaultdict
 import networkx as nx
@@ -11,15 +11,84 @@ class StreamlineSimplificator:
     def __init__(self,mesh):
 
         self.mesh = mesh
-        self.streamline_splines            = self.get_streamlines_as_splines()
-        self.intersection_data             = self.find_all_intersections()
-        self.mesh.streamline_intersections = self.intersection_data[0]['points']
-        self.quad_edges                    = self.split_splines_at_intersections(self.intersection_data)
-
+        self.mesh.streamlines_init = self.mesh.streamlines.copy()
+        self.streamline_splines_merged      = self.merge_duplicate_streamlines()
+        self.mesh.streamlines = self.streamline_splines_merged
+        self.streamline_splines             = self.get_streamlines_as_splines()
+        self.intersection_data              = self.find_all_intersections()
+        self.mesh.streamline_intersections  = self.intersection_data[0]['points']
+        self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
         self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
-        self.quad_mesh =  self.get_mesh()
+        self.quad_mesh                      =  self.get_mesh()
+        self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
+
+
+        self.add_graph_attr()
         
-    
+    def merge_duplicate_streamlines(self, tolerance=1e-5):
+        streamlines = self.mesh.streamlines
+        new_streamlines = []
+        processed_indices = set()
+        
+        for i in range(len(streamlines)):
+            if i in processed_indices:
+                continue
+                
+            current_start = streamlines[i][0]
+            current_end = streamlines[i][-1]
+            merged_streamline = streamlines[i]
+            
+            for j in range(i+1, len(streamlines)):
+                if j in processed_indices:
+                    continue
+                    
+                if (np.linalg.norm(streamlines[j][-1] - current_start) < tolerance and 
+                    np.linalg.norm(streamlines[j][0] - current_end) < tolerance):
+                    # Found a duplicate!
+                    duplicate_found = True
+                    processed_indices.add(i)
+                    processed_indices.add(j)
+                    
+                    # Merge the streamlines
+                    merged_streamline = self.interpolate_streamlines(streamlines[i], streamlines[j])
+                    break
+            
+            new_streamlines.append(merged_streamline)        
+        return new_streamlines
+
+    def interpolate_streamlines(self, streamline_ij, streamline_ji, num_points=100):
+               # Convert streamlines to splines
+        splines_ij = self.get_streamlines_as_splines([streamline_ij])
+        splines_ji = self.get_streamlines_as_splines([streamline_ji])
+
+        # Extract splines (assuming get_streamlines_as_splines returns [tck, u] for each streamline)
+        tck_ij, u_ij = splines_ij[0]
+        tck_ji, u_ji = splines_ji[0]
+
+        # Generate uniform parameter values
+        u_new = np.linspace(0, 1, num_points)
+
+        # Evaluate splines at new parameter values
+        x_ij, y_ij = splev(u_new, tck_ij)
+        x_ji, y_ji = splev(u_new, tck_ji)
+        
+        
+        x_merged = (1 - u_new) * x_ij + u_new * x_ji
+        y_merged = (1 - u_new) * y_ij + u_new * y_ji
+        # Stack and return merged streamline
+        merged_streamline = np.vstack((x_merged, y_merged)).T
+        return merged_streamline
+
+    def add_graph_attr(self):
+
+        self.quad_mesh.streamline_intersections = self.mesh.streamline_intersections
+        self.quad_mesh.edge_subdomain_index = self.edges_subdomain
+        self.quad_mesh.edge_subdomain_points = self.edge_points
+
+
+        self.quad_mesh.triangle_nodes = self.mesh.x
+        self.quad_mesh.triangle_faces = self.mesh.faces 
+
     def get_mesh(self):
 
         nodes           = torch.tensor(self.nodes_subdomain)
@@ -28,7 +97,7 @@ class StreamlineSimplificator:
         faces            = self.delete_invalid_faces(temporary_faces,nodes)
 
         edge_index = torch.cat([faces[:2],faces[1:3],faces[2:4],faces[::2],faces[1::2],faces[::3],], dim=1)
-        mesh       = Data(x = nodes, edge_index = edge_index,face = faces)
+        mesh       = Data(x = nodes, edge_index = edge_index,faces = faces)
 
         return mesh
     
@@ -150,9 +219,13 @@ class StreamlineSimplificator:
 
         return torch.tensor(quad_faces).T
 
-    def get_streamlines_as_splines(self):
+    def get_streamlines_as_splines(self,streamlines = None):
+
         splines = []
-        streamlines = self.mesh.streamlines
+        
+        if streamlines == None:
+            streamlines = self.mesh.streamlines
+        
         for i in range(len(streamlines)):
             streamline = np.array(streamlines[i])  
             x = streamline[:, 0]
@@ -165,7 +238,34 @@ class StreamlineSimplificator:
                 splines.append([tck, u])
 
         return splines
- 
+
+    def reconstruct_streamlines_from_edges(self,split_data):
+    
+        streamlines = []
+        edges = split_data['edges']
+        
+        for edge in edges:
+            edge = np.array(edge)
+            x, y = edge[:, 0], edge[:, 1]
+            
+            # Handle short or straight segments with k=1 (linear)
+            if len(edge) <= 2:
+                k = 1
+            else:
+                k = min(3, len(edge) - 1)
+            
+            try:
+                tck, u = splprep([x, y], s=0, k=k)
+                t_vals = np.linspace(0, 1, 100)
+                spline_points = np.array(splev(t_vals, tck)).T  # shape (100, 2)
+            except Exception as e:
+                # fallback: just interpolate linearly
+                spline_points = np.linspace(edge[0], edge[-1], 100)
+            
+            streamlines.append(spline_points)
+
+        return streamlines 
+
     def split_splines_at_intersections(self, intersection_data):
 
         """

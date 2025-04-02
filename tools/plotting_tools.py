@@ -1,21 +1,35 @@
-def plot_intersections(mesh,output_file="./figures/streamline_intersections.png"):
+from tools import streamline_simplificator
+
+
+def plot_intersections(mesh,output_file="./figures/streamline_intersections.png",colored = False):
     import matplotlib.pyplot as plt
     import numpy as np
 
     streamlines = mesh.streamlines
-    nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
     edges = mesh.edge_index
     # Create a figure for plotting
     plt.figure(figsize=(8, 8))
-    
-    # Plot the mesh by drawing the triangles
-    for face in mesh.faces.T:  # Transposing to iterate through each face
+   
+    try :
+        faces = mesh.triangle_faces.T
+        nodes = mesh.triangle_nodes[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+
+    except Exception as no_quad_mesh:
+        faces = mesh.faces.T
+        nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+
+    for face in faces:  # Transposing to iterate through each face
         triangle = nodes[face, :]
         plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
     
     for streamline in streamlines:
         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
-        plt.plot(streamline[:, 0], streamline[:, 1],'r')
+        if colored == False:
+            plt.plot(streamline[:, 0], streamline[:, 1],'r')
+        else:
+            color = np.random.rand(3,) #generate random rgb values
+            plt.plot(streamline[:, 0], streamline[:, 1],color = color)
+
     try:
             for i in range(len(mesh.streamline_intersections)):
                 intersection = mesh.streamline_intersections[i]
@@ -136,7 +150,7 @@ def plot_faces(mesh,output_file="./figures/faces.png"):
     
     nodes = mesh.x[:, 0:2]  
     plt.figure(figsize=(8, 8))
-    for face_ids in mesh.face.T: 
+    for face_ids in mesh.faces.T: 
         face = nodes[face_ids, :]
         face_color = np.random.rand(3,) #generate random rgb values
         plt.fill(face[:, 0], face[:, 1], color = face_color,edgecolor='gray',  linewidth=0.5)
@@ -149,7 +163,92 @@ def plot_faces(mesh,output_file="./figures/faces.png"):
     plt.savefig(output_file, dpi=300)
 
 
+def plot_one_separatrices(mesh,ID,output_file="./figures/separatrix.png"):
+    
+    from matplotlib.lines import Line2D  # For custom legend entries
+    import matplotlib.pyplot as plt
+    import numpy as np
+    face_id = mesh.separatrices[ID]['face_id']
+    plt.figure(figsize=(6, 6))
+    
+    for i in range(len(mesh.separatrices)):
+        
+        separatix = mesh.separatrices[i] 
+        if face_id != separatix['face_id']:
+            break
+        coords    = mesh.separatrices[i]['coordinates']
+        face      = mesh.faces[:,separatix['face_id']]
+        nodes     = mesh.x[face,0:2]
+        
+        ref_vec = mesh.u[face,:]
+        
+        singularity_coords = separatix['singularity_coords']
+        
+        plt.fill(nodes[:,0], nodes[:,1], edgecolor='gray', fill=None)
+        
+        #plot triangles vertices
 
+       
+        plt.plot([singularity_coords[0],coords[0]], [singularity_coords[1],coords[1]], '-k')
+        plt.plot(coords[0],coords[1], 'sg')
+        plt.plot(singularity_coords[0], singularity_coords[1], 'or')
+        old_face_id = separatix['face_id']
+        
+        # Compute four cross directions
+        angles = np.arctan2(ref_vec[:, 1], ref_vec[:, 0])  # Compute angles of input vectors
+
+        for k in range(4):  # Loop to plot four symmetric directions
+            cross_angles = angles/4 + k * np.pi / 2  # Rotate by 90 degrees for cross field
+            u = np.cos(cross_angles)  # Compute rotated vectors
+            v = np.sin(cross_angles)
+
+            # Unpack coordinates
+            x, y = nodes[:, 0], nodes[:, 1]
+
+            plt.quiver(x, y, u, v, angles='xy', scale_units='inches', 
+                       scale=2, color='blue', alpha=0.8, width=0.01)
+
+        
+        for k in range(4):  # Loop to plot four symmetric directions
+            # cross_angles = separatix['angle'] + k * np.pi / 2  # Rotate by 90 degrees for cross field
+            cross_angles = np.arctan2(coords[1]-singularity_coords[1],coords[0]-singularity_coords[0])
+            u = np.cos(cross_angles)  # Compute rotated vectors
+            v = np.sin(cross_angles)
+
+            # Unpack coordinates
+            x, y = coords[0], coords[1]
+
+            plt.quiver(x, y, u, v, angles='xy', scale_units='inches', 
+                       scale=2, color='red', alpha=0.8, width=0.01)
+
+        for j in range(3):
+            plt.plot(nodes[j,0], nodes[j,1], 'ok')
+
+    legend_elements = [
+    
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=8, label="Singularity"),
+    
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='black', markersize=8, label="$P_{i/j}$"),
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=8, label="P"),
+    Line2D([0], [0], color='red', linewidth=2, marker='>', markersize=6, label=r"$u(P)$"),
+    
+    Line2D([0], [0], color='blue', linewidth=2, marker='>', markersize=6, label=r"$v_k$"),
+    Line2D([0], [0], color='k', linewidth=2, markersize=6, label=r"Separatrices"),
+    
+    ]
+
+    plt.legend(handles=legend_elements,
+           loc='upper left',
+#            bbox_to_anchor=(1.05, 1),  # x, y in axes coordinates
+           fontsize=12)       
+        
+    # plt.xlim([0.755,0.786])
+    # plt.ylim([0.442,0.474])
+    # 
+    # plt.gca().set_aspect('equal', adjustable='box')
+#     plt.grid(True)
+    # plt.axis('off')        
+    plt.savefig(output_file, dpi=300, bbox_inches='tight',format = 'svg')
 def plot_streamlines(mesh,output_file="./figures/domain_partition.png"):
     import matplotlib.pyplot as plt
     import numpy as np
