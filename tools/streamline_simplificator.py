@@ -51,6 +51,7 @@ class StreamlineSimplificator:
                     
                     # Merge the streamlines
                     merged_streamline = self.interpolate_streamlines(streamlines[i], streamlines[j])
+                    print('streamlines merged')
                     break
             
             new_streamlines.append(merged_streamline)        

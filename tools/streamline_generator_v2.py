@@ -3,10 +3,9 @@ import torch
 import numpy as np
 from tools.separatrix_generator import SeparatrixGenerator
 
-class StreamlineGenerator:
+class StreamlineGenerator_v2:
     def __init__(self,mesh):
-        self.separatrices = SeparatrixGenerator(mesh)
-        self.mesh=self.separatrices.mesh
+        self.mesh= mesh
         self.mesh = self.get_streamlines() 
 
     def get_streamlines(self):

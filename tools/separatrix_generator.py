@@ -92,6 +92,10 @@ class SeparatrixGenerator:
         
         # Iterating over each face that contains a singularity
         for i in range(face_ids.size(0)):
+
+            num_separatrices_found = 0
+            separatrices_angles = []
+
             face_id = face_ids[i]
             current_face = mesh.faces[:, face_id]
             nodes_of_current_faces = mesh.x[current_face, 0:2]
@@ -106,7 +110,7 @@ class SeparatrixGenerator:
             t = torch.arange(0, 1, 1 / num_of_ts)
 
             num_nodes_triangle = 3
-            
+            last_edge_length = torch.tensor(1)
             for edge_id in range(num_nodes_triangle):
 
                 if edge_id == num_nodes_triangle - 1:
@@ -114,6 +118,7 @@ class SeparatrixGenerator:
                 else:
                     edge_vec = nodes_of_current_faces[edge_id + 1, :] - nodes_of_current_faces[edge_id, :]
 
+                last_edge_length = torch.linalg.norm(edge_vec)
                 for i in range(num_of_ts):
                     current_node = nodes_of_current_faces[edge_id, :] + t[i] * edge_vec
                    
@@ -139,6 +144,35 @@ class SeparatrixGenerator:
                                 'singularity_coords': singularity_coords,
                                 'face_id': face_id
                             })
+                            separatrices_angles.append(separatrix_angle)
+                            num_separatrices_found += 1
+            if num_separatrices_found % 2 == 0:
+                print(f'even number of separatrices: {num_separatrices_found}')
+                
+                length_separatix = last_edge_length
+
+                separatrices_angles.sort()
+                sorted_angles =separatrices_angles 
+                sorted_angles.append(sorted_angles[0]+2*torch.pi)
+                sorted_angles = torch.tensor(sorted_angles)
+                diff_angles   = torch.diff(sorted_angles) 
+                idx_new_angle = torch.where(diff_angles == torch.max(diff_angles))[0]
+                new_angle     = (sorted_angles[idx_new_angle]+sorted_angles[idx_new_angle+1])/2 
+                new_separatrix_vec = torch.tensor([length_separatix*torch.sin(new_angle),length_separatix*torch.cos(new_angle)])
+                new_separatrix_node = singularity_coords+new_separatrix_vec 
+
+                new_face_id = self.find_containing_face(new_separatrix_node)
+                
+                best_vector, _ = self.get_best_cross_vector(new_separatrix_node, new_separatrix_vec, mesh,  new_face_id)
+
+                separatrices.append({
+                    'coordinates': new_separatrix_node,
+                    'angle': new_angle,
+                    'vector': best_vector,
+                    'singularity_coords': singularity_coords,
+                    'face_id': new_face_id
+                })
+
         self.mesh.separatrices = separatrices
     
     def is_boundary_node_regular(self, node_id):
