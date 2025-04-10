@@ -1,5 +1,43 @@
 from tools import streamline_simplificator
 
+def plot_streamlines(mesh,output_file="./figures/streamlines.png",colored = False):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    streamlines = mesh.streamlines
+    edges = mesh.edge_index
+    # Create a figure for plotting
+    plt.figure(figsize=(8, 8))
+   
+    try :
+        faces = mesh.triangle_faces.T
+        nodes = mesh.triangle_nodes[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+
+    except Exception as no_quad_mesh:
+        faces = mesh.faces.T
+        nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+
+    for face in faces:  # Transposing to iterate through each face
+        triangle = nodes[face, :]
+        plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
+    
+    for streamline in streamlines:
+        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
+        if colored == False:
+            plt.plot(streamline[:, 0], streamline[:, 1],'r')
+        else:
+            color = np.random.rand(3,) #generate random rgb values
+            plt.plot(streamline[:, 0], streamline[:, 1],color = color)
+
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Streamlines over Mesh')
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.grid(True)
+    
+    plt.savefig(output_file, dpi=300)
+
+
 
 def plot_intersections(mesh,output_file="./figures/streamline_intersections.png",colored = False):
     import matplotlib.pyplot as plt
@@ -144,7 +182,7 @@ def plot_vector_field(mesh, init = False, output_file="./figures/vector_field.pn
     plt.savefig(output_file, dpi=300)
     #plt.close()
 
-def plot_faces(mesh,output_file="./figures/faces.png"):
+def plot_faces(mesh,output_file="./figures/faces.png",face_color =None):
     import matplotlib.pyplot as plt
     import numpy as np
     
@@ -152,7 +190,9 @@ def plot_faces(mesh,output_file="./figures/faces.png"):
     plt.figure(figsize=(8, 8))
     for face_ids in mesh.faces.T: 
         face = nodes[face_ids, :]
-        face_color = np.random.rand(3,) #generate random rgb values
+        if face_color == None:
+            face_color = np.random.rand(3,) #generate random rgb values
+        
         plt.fill(face[:, 0], face[:, 1], color = face_color,edgecolor='gray',  linewidth=0.5)
     
     plt.xlabel('X')
@@ -249,36 +289,36 @@ def plot_one_separatrices(mesh,ID,output_file="./figures/separatrix.png"):
 #     plt.grid(True)
     # plt.axis('off')        
     plt.savefig(output_file, dpi=300, bbox_inches='tight',format = 'svg')
-def plot_streamlines(mesh,output_file="./figures/domain_partition.png"):
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    streamlines = mesh.streamlines
-    nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
-    edges = mesh.edge_index
-    # Create a figure for plotting
-    plt.figure(figsize=(8, 8))
-    
-    # Plot the mesh by drawing the triangles
-    for face in mesh.faces.T:  # Transposing to iterate through each face
-        triangle = nodes[face, :]
-        plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
-
-    for streamline in streamlines:
-        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
-        plt.plot(streamline[:, 0], streamline[:, 1],'r')
-    
-    # Set plot details
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Streamlines over Mesh')
-    plt.gca().set_aspect('equal', adjustable='box')
-#     plt.legend()
-    plt.grid(True)
-    
-    plt.savefig(output_file, dpi=300)
-
-def plot_cross_field(mesh, init=True, output_file="./figures/cross_field.png"):
+# def plot_streamlines(mesh,output_file="./figures/domain_partition.png"):
+#     import matplotlib.pyplot as plt
+#     import numpy as np
+#
+#     streamlines = mesh.streamlines
+#     nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+#     edges = mesh.edge_index
+#     # Create a figure for plotting
+#     plt.figure(figsize=(8, 8))
+#     
+#     # Plot the mesh by drawing the triangles
+#     for face in mesh.faces.T:  # Transposing to iterate through each face
+#         triangle = nodes[face, :]
+#         plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
+#
+#     for streamline in streamlines:
+#         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
+#         plt.plot(streamline[:, 0], streamline[:, 1],'r')
+#     
+#     # Set plot details
+#     plt.xlabel('X')
+#     plt.ylabel('Y')
+#     plt.title('Streamlines over Mesh')
+#     plt.gca().set_aspect('equal', adjustable='box')
+# #     plt.legend()
+#     plt.grid(True)
+#     
+#     plt.savefig(output_file, dpi=300)
+#
+# def plot_cross_field(mesh, init=True, output_file="./figures/cross_field.png"):
     import numpy as np
     import matplotlib.pyplot as plt
     import torch

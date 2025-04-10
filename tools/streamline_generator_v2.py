@@ -5,7 +5,11 @@ from tools.separatrix_generator import SeparatrixGenerator
 
 class StreamlineGenerator_v2:
     def __init__(self,mesh):
-        self.mesh= mesh
+        self.separatrices = SeparatrixGenerator(mesh)
+
+        self.termination_node_range = 10e-3
+
+        self.mesh=self.separatrices.mesh
         self.mesh = self.get_streamlines() 
 
     def get_streamlines(self):
@@ -13,7 +17,12 @@ class StreamlineGenerator_v2:
         mesh = self.mesh
         streamlines  = mesh.streamlines
         mesh = self.add_face_streamline_labels(mesh)
-       
+        
+        mask_c0_nodes = mesh.x[:, 2] == 0
+        c0_nodes = mesh.x[mask_c0_nodes, 0:2]
+        print(c0_nodes)
+        self.streamline_termination_nodes = torch.tensor([self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords]+list(c0_nodes))
+      
         for i in range(len(mesh.separatrices)):
            
             streamline = []
@@ -82,6 +91,27 @@ class StreamlineGenerator_v2:
         # Check if point is inside the triangle
         return (u >= 0) and (v >= 0) and (u + v <= 1)
 
+
+    def check_termination_criteria(self, point, face_idx, origin):
+        
+        if face_idx == None:
+            print("Current point is outside the mesh.")
+            return True, point
+       
+        distances = torch.linalg.norm(self.streamline_termination_nodes - point, dim=1)
+        min_distance = torch.min(distances)
+        
+        if min_distance < self.termination_node_range:
+            idx_termination_node = torch.where(distances == min_distance)[0]
+            termination_node = self.streamline_termination_nodes[idx_termination_node.item(), :]
+            if torch.linalg.norm(point-origin) < self.termination_node_range:
+               # Is directly at the start
+               return False, None
+            else:
+                return True, termination_node
+               
+        return False, None
+
     def runge_kutta_heun_integrate_streamline(self,start_point, start_direction, mesh, streamline, step_size=0.0025):
         
         current_point = start_point.clone().detach()
@@ -101,57 +131,33 @@ class StreamlineGenerator_v2:
 
             predictor_point   = current_point + step_size * v_current
             predicted_face_id = self.find_containing_face(predictor_point, mesh) 
-            
-            if predicted_face_id is None:
-                streamline.append(predictor_point.numpy())
-                print('predicted face is outside mesh')
+
+            terminate, end_point = self.check_termination_criteria(predictor_point, predicted_face_id, start_point)   
+            if terminate == True:
+                streamline.append(end_point.numpy())
                 break
+
             if predicted_face_id != current_face_idx:
                 mesh.face_streamline_labels[predicted_face_id] = 1
 
-           # Evaluate the vector field at the predicted point
             v_predictor,mesh = self.get_best_cross_vector(predictor_point, v_current, mesh,predicted_face_id)
 
             if v_predictor is None:
                 print('no interpolated Vector at predicted point found')
                 break
+
             v_predictor = v_predictor / torch.norm(v_predictor)  # Ensure unit vector
 
             average_direction = (v_current + v_predictor) / 2.0
             average_direction = average_direction / torch.norm(average_direction)  # Normalize
-            if mesh.singularities[predicted_face_id] != 0:
-                if predicted_face_id != init_face_idx:# reached other singularity 
-                    coord_singularity = torch.tensor(mesh.singularities_coords[predicted_face_id], dtype=torch.float32)
 
-                    direction_to_singularity = coord_singularity - current_point
-                    angle_diff = torch.atan2(direction_to_singularity[1],direction_to_singularity[0])-torch.atan2(average_direction[1],average_direction[0])
-                    if torch.abs(angle_diff) < torch.pi/8:
-                        streamline.append(coord_singularity.numpy())
-                        break
-
-            next_point = current_point + step_size * average_direction
-
-            # Check if the next point is outside the mesh
-            if not self.is_point_inside_mesh(next_point, mesh):
-                streamline.append(next_point.numpy())
+            next_point        = current_point + step_size * average_direction
+            new_face_id       = self.find_containing_face(next_point, mesh) 
+            
+            terminate, end_point = self.check_termination_criteria(next_point, new_face_id, start_point)   
+            if terminate == True:
+                streamline.append(end_point.numpy())
                 break
-            new_face_id = self.find_containing_face(next_point, mesh) 
-            
-            
-            if new_face_id is None:
-                streamline.append(next_point.numpy())
-                break
-            
-            if new_face_id != init_face_idx:
-                if mesh.singularities[new_face_id] != 0:
-                        coord_singularity = torch.tensor(mesh.singularities_coords[new_face_id], dtype=torch.float32)
-
-                        direction_to_singularity = coord_singularity - next_point
-                        angle_diff = torch.atan2(direction_to_singularity[1],direction_to_singularity[0])-torch.atan2(average_direction[1],average_direction[0])
-                        if torch.abs(angle_diff) < torch.pi/8:
-                            streamline.append(coord_singularity.numpy())
-                            break
-
             if  new_face_id != predicted_face_id:
                 mesh.face_streamline_labels[new_face_id] = 1
                     

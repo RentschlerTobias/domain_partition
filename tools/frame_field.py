@@ -4,14 +4,17 @@ from tools.mesh_generator import MeshGenerator
 import math
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
-
+import time
 
 class FrameField:
     def __init__(self, meshOfMeshGenerator):
 
         self.mesh = meshOfMeshGenerator
         self.add_cross_at_boundaries()
+        self.time_start = time.time() 
         self.generate_cross_field()
+        self.time_end = time.time()
+        self.mesh.time_frame_field_generator =  self.time_end - self.time_start
 
     def map_cross_vectors_to_reference_vector(self, angle_rad):
         # pi = torch.tensor(math.pi)
@@ -308,8 +311,10 @@ class FrameField:
             diff = np.linalg.norm(u_current - u_previous)
             if diff < tolerance:
                 print(f"Konvergenz erreicht nach {n+1} Iterationen.")
+                self.mesh.frame_field_iteration_number = n
                 break
         else:
             print("Maximale Anzahl von Iterationen erreicht.")
+            self.mesh.frame_field_iteration_number = 100
 
         return u_current
