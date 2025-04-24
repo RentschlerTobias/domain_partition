@@ -1,4 +1,3 @@
-
 import torch
 import numpy as np
 from tools.separatrix_generator import SeparatrixGenerator
@@ -83,7 +82,7 @@ class StreamlineGenerator:
         # Check if point is inside the triangle
         return (u >= 0) and (v >= 0) and (u + v <= 1)
 
-    def runge_kutta_heun_integrate_streamline(self,start_point, start_direction, mesh, streamline, step_size=0.0025):
+    def runge_kutta_heun_integrate_streamline(self,start_point, start_direction, mesh, streamline, step_size=0.0025, max_steps=1000):
         
         current_point = start_point.clone().detach()
         current_direction = start_direction / torch.norm(start_direction)  # Ensure unit vector
@@ -91,12 +90,13 @@ class StreamlineGenerator:
         init_face_idx = current_face_idx
         mesh.face_streamline_labels[current_face_idx] = 1
 
-        while True:           
+
+        for step in range(max_steps):
+           
             # Evaluate the vector field at the current point
             v_current,mesh = self.get_best_cross_vector(current_point, current_direction, mesh, current_face_idx)
             if v_current is None:
                 print("Current point is outside the mesh.")
-                print(f"Current point: {current_point} of face {current_face_idx}")
                 break
             v_current = v_current / torch.norm(v_current)  # Ensure unit vector
 
@@ -105,16 +105,13 @@ class StreamlineGenerator:
             
             if predicted_face_id is None:
                 streamline.append(predictor_point.numpy())
-                print('predicted face is outside mesh')
                 break
             if predicted_face_id != current_face_idx:
                 mesh.face_streamline_labels[predicted_face_id] = 1
-
            # Evaluate the vector field at the predicted point
             v_predictor,mesh = self.get_best_cross_vector(predictor_point, v_current, mesh,predicted_face_id)
 
             if v_predictor is None:
-                print('no interpolated Vector at predicted point found')
                 break
             v_predictor = v_predictor / torch.norm(v_predictor)  # Ensure unit vector
 
@@ -129,6 +126,8 @@ class StreamlineGenerator:
                     if torch.abs(angle_diff) < torch.pi/8:
                         streamline.append(coord_singularity.numpy())
                         break
+                    print(coord_singularity)
+
 
             next_point = current_point + step_size * average_direction
 
@@ -168,7 +167,6 @@ class StreamlineGenerator:
 
 
         if containing_face_idx is None:
-            print(f'point ({point}) is not inside a face')
             return None, mesh  
 
        

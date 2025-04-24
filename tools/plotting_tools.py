@@ -7,7 +7,7 @@ def plot_streamlines(mesh,output_file="./figures/streamlines.png",colored = Fals
     streamlines = mesh.streamlines
     edges = mesh.edge_index
     # Create a figure for plotting
-    plt.figure(figsize=(8, 8))
+    plt.figure(figsize=(5, 5))
    
     try :
         faces = mesh.triangle_faces.T
@@ -28,15 +28,11 @@ def plot_streamlines(mesh,output_file="./figures/streamlines.png",colored = Fals
         else:
             color = np.random.rand(3,) #generate random rgb values
             plt.plot(streamline[:, 0], streamline[:, 1],color = color)
-
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Streamlines over Mesh')
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.grid(True)
-    
-    plt.savefig(output_file, dpi=300)
-
+ 
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent =True)
 
 
 def plot_intersections(mesh,output_file="./figures/streamline_intersections.png",colored = False):
@@ -46,7 +42,7 @@ def plot_intersections(mesh,output_file="./figures/streamline_intersections.png"
     streamlines = mesh.streamlines
     edges = mesh.edge_index
     # Create a figure for plotting
-    plt.figure(figsize=(8, 8))
+    plt.figure(figsize=(5, 5))
    
     try :
         faces = mesh.triangle_faces.T
@@ -69,44 +65,64 @@ def plot_intersections(mesh,output_file="./figures/streamline_intersections.png"
             plt.plot(streamline[:, 0], streamline[:, 1],color = color)
 
     try:
-            for i in range(len(mesh.streamline_intersections)):
-                intersection = mesh.streamline_intersections[i]
-                plt.plot(intersection[0],intersection[1],'ok')
+        
+        for i in range(len(mesh.streamline_intersections_points)):
+            intersection = mesh.streamline_intersections_points[i]
+            intersection_coords =intersection[0]
+            plt.plot(intersection_coords[0],intersection_coords[1],'ok')
     except:
         print('no streamline intersections')
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Streamlines over Mesh')
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.grid(True)
-    
-    plt.savefig(output_file, dpi=300)
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent =True)
 
 def plot_boundary_egdes(mesh, output_file="./figures/mesh_boundary_edges.png"):
 
     import matplotlib.pyplot as plt
     import numpy as np
 
+    plt.figure(figsize=(5, 5))
     for i in range(mesh.edge_index.size(1)):
         p1 = mesh.x[mesh.edge_index[0,i]]
         p2 = mesh.x[mesh.edge_index[1,i]]
         if mesh.edge_attr[i] == 1:
-            color = 'r'
+            color = 'k'
             plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
-        else: color = 'k'
-    plt.savefig(output_file, dpi=300)
+        # else: color = 'k'
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent =True)
+
 
 def plot_egdes(mesh, output_file="./figures/edges_random_colored.png"):
 
     import matplotlib.pyplot as plt
     import numpy as np
 
+    plt.figure(figsize=(5, 5))
     for i in range(mesh.edge_index.size(1)):
         p1 = mesh.x[mesh.edge_index[0,i]]
         p2 = mesh.x[mesh.edge_index[1,i]]
-        color = np.random.rand(3,) #generate random rgb values
-        plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
-    plt.savefig(output_file, dpi=300)
+        if mesh.edge_attr[i] == 1:
+            color = 'k'
+            plt.plot([p1[0],p2[0]], [p1[1],p2[1]], linestyle='-', color=color)
+        # else: color = 'k'
+        # Plot faces
+
+    for i in range(mesh.faces.size(1)):
+        face = mesh.faces[:, i]
+        nodes = mesh.x[face, 0:2]
+
+        plt.fill(nodes[:, 0], nodes[:, 1], color='grey', alpha=0.1)
+
+
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent =True)
+
 
 
 def plot_nodes(mesh, output_file="./figures/mesh_nodes.png"):
@@ -130,36 +146,59 @@ def plot_singularities(mesh,output_file = "./figures/mesh_with_sing.png"):
 
     import matplotlib.pyplot as plt
     
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(5, 5))
+ 
     for i in range(mesh.faces.size(1)):
-        face = mesh.faces[:,i]
-        nodes = mesh.x[face,0:2]
-        if mesh.singularities[i]==0:
-            color = 'grey'
-        elif mesh.singularities[i] == -1:
-            color = 'blue'
-        elif mesh.singularities[i] == 1:
-            color ='red'
-        else:
-            color = 'black'
-        plt.fill(nodes[:,0],nodes[:,1],color = color,alpha = 0.5)
+        face = mesh.faces[:, i]
+        nodes = mesh.x[face, 0:2]
 
-    plt.savefig(output_file, dpi=300)
+        plt.fill(nodes[:, 0], nodes[:, 1], color='grey', alpha=0.1)
+    
+    coords = mesh.x[:, 0:2]
+    vectors = mesh.u
 
-def plot_vector_field(mesh, init = False, output_file="./figures/vector_field.png"):
+    coords = coords.cpu().numpy() if hasattr(coords, "cpu") else coords
+    vectors = vectors.cpu().numpy() if hasattr(vectors, "cpu") else vectors
+
+    x, y = coords[:, 0], coords[:, 1]
+    u, v = vectors[:, 0], vectors[:, 1]
+
+    plt.quiver(x, y, u, v, angles='xy', scale_units='width', 
+               scale=50, color='blue', alpha=0.6)
+   
+    for key in mesh.singularities_coords:
+        coords_sing = mesh.singularities_coords[key]
+
+        plt.plot(coords_sing[0],coords_sing[1], 'or')
+
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent =True)
+
+
+def plot_vector_field(mesh, init = False, output_file="./figures/vector_field.png",face_color =None):
 
     import matplotlib.pyplot as plt
     import numpy as np
-
-    # Extract 2D node coordinates and vectors
-    coords = mesh.x[:, 0:2]
     
-    if init == False:
-        vectors = mesh.u
-    else:
-        vectors = mesh.frame_field_coords
+    plt.figure(figsize=(5, 5))
+    
+    for i in range(mesh.faces.size(1)):
+        face = mesh.faces[:, i]
+        nodes = mesh.x[face, 0:2]
 
-    # Ensure numpy format for plotting
+        plt.fill(nodes[:, 0], nodes[:, 1], color='grey', alpha=0.1)
+
+    if init:
+        mask = mesh.x[:, 2] != 2  # Mask out specific nodes
+        coords = mesh.x[mask, 0:2]
+        vectors = mesh.frame_field_coords[mask, :]
+    else:
+        coords = mesh.x[:, 0:2]
+        vectors = mesh.u
+
+      # Ensure numpy format for plotting
     coords = coords.cpu().numpy() if hasattr(coords, "cpu") else coords
     vectors = vectors.cpu().numpy() if hasattr(vectors, "cpu") else vectors
 
@@ -168,18 +207,17 @@ def plot_vector_field(mesh, init = False, output_file="./figures/vector_field.pn
     u, v = vectors[:, 0], vectors[:, 1]
 
     # Plot the vector field
-    plt.figure(figsize=(5, 5))
     plt.quiver(x, y, u, v, angles='xy', scale_units='width', 
                scale=50, color='blue', alpha=0.8)
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.title("2D Vector Field")
+
+
+    
+    plt.axis('off')
     plt.axis('equal')  # Ensure equal scaling for x and y
     plt.grid(True, linestyle='--', alpha=0.5)
-
-    # Save the plot
     plt.tight_layout()
-    plt.savefig(output_file, dpi=300)
+
+    plt.savefig(output_file, dpi=300,transparent = True)
     #plt.close()
 
 def plot_faces(mesh,output_file="./figures/faces.png",face_color =None):
@@ -190,7 +228,7 @@ def plot_faces(mesh,output_file="./figures/faces.png",face_color =None):
     plt.figure(figsize=(8, 8))
     for face_ids in mesh.faces.T: 
         face = nodes[face_ids, :]
-        if face_color == None:
+        if face_color:
             face_color = np.random.rand(3,) #generate random rgb values
         
         plt.fill(face[:, 0], face[:, 1], color = face_color,edgecolor='gray',  linewidth=0.5)
@@ -318,7 +356,7 @@ def plot_one_separatrices(mesh,ID,output_file="./figures/separatrix.png"):
 #     
 #     plt.savefig(output_file, dpi=300)
 #
-# def plot_cross_field(mesh, init=True, output_file="./figures/cross_field.png"):
+def plot_cross_field(mesh, init=True, output_file="./figures/cross_field.png"):
     import numpy as np
     import matplotlib.pyplot as plt
     import torch
@@ -372,4 +410,4 @@ def plot_one_separatrices(mesh,ID,output_file="./figures/separatrix.png"):
     plt.axis('off')
     plt.axis('equal')  # Equal aspect ratio
     plt.tight_layout()
-    plt.savefig(output_file, dpi=300)
+    plt.savefig(output_file, dpi=300, transparent =True)

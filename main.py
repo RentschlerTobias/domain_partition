@@ -6,44 +6,46 @@ from tools.plotting_tools import *
 from tools.save_load import *
 from torch_geometric.data import Data
 import numpy as np
-
 import torch
+
+# from csme_plots import Evaluation
+# eval = Evaluation()
 #
-# mesh_init = torch.load('mesh_wrong_separatrix.pt')
-# streamline = StreamlineGenerator_v2(mesh_init)
-# streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
+
+
+mesh = torch.load("./saved_meshes/good_mesh.pt")
+len(mesh.streamlines)
+streamline = StreamlineGenerator(mesh)
+
+len(streamline.mesh.streamlines)
+streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
+
+len(streamlines_post_processed.mesh.streamlines)
 # blocked_mesh = streamlines_post_processed.quad_mesh
-# plot_streamlines(streamline.mesh,output_file='./figures/streamlines_v2',colored = True)
-# plot_intersections(streamlines_post_processed.mesh,output_file="./figures/intersections_merged_v3.png")
-# plot_faces(blocked_mesh,output_file="./figures/faces_merged.png")
-#
+streamlines_post_processed.mesh.intersections
+file = 'success'
 
-plot_faces(frameField.mesh,face_color ='black')
+plot_streamlines(streamline.mesh,output_file=f"./figures/streamlines_{file}.png",colored=True)
+plot_intersections(streamlines_post_processed.mesh, output_file=f"./figures/intersections_{file}.png")
+# plot_faces(blocked_mesh,output_file=f"./figures/faces_{file}.png")
 
-meshes = torch.load('./saved_meshes/frame_field_time_measured/all_meshes.pt')
-mesh = frameField.mesh
-mesh.time_frame_field_generator 
-# Saveing
-# save_object(airfoil, 'airfoil_failed_streamline.pkl')
-# torch.save(mesh_gen.mesh, 'mesh_wrong_separatrix.pt')
 
-# Loading 
-# mesh = torch.load('good_mesh.pt')
-# mesh = torch.load('mesh_wrong_separatrix.pt')
-
-# mesh_init = torch.load('mesh_wrong_separatrix.pt')
-# airfoil = load_objet('airfoil_failed_streamline.pkl')# Mesh where one streamline/separatrix is missing, further errors
 
 airfoil = NACA_airfoil()
-mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=0.1)
+mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=0.05)
 frameField = FrameField(mesh_gen.mesh)
-streamline = StreamlineGenerator_v2(frameField.mesh)
+streamline = StreamlineGenerator(frameField.mesh)
 streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
 blocked_mesh = streamlines_post_processed.quad_mesh
+file = 'test'
 
-plot_streamlines(streamline.mesh)
-plot_intersections(streamlines_post_processed.mesh)
-plot_faces(blocked_mesh)
+plot_streamlines(streamline.mesh,output_file=f"./figures/streamlines_{file}.png")
+plot_intersections(streamlines_post_processed.mesh, output_file=f"./figures/intersections_{file}.png")
+plot_faces(blocked_mesh,output_file=f"./figures/faces_{file}.png")
+
+
+
+
 
 def main():
 

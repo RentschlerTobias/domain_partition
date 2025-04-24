@@ -9,190 +9,27 @@ from torch_geometric.data import Data
 
 class StreamlineSimplificator:
     def __init__(self,mesh):
-
+        
         self.mesh = mesh
-        self.mesh.streamlines_init = self.mesh.streamlines.copy()
-        self.streamline_splines_merged      = self.merge_duplicate_streamlines()
-        self.mesh.streamlines = self.streamline_splines_merged
         self.streamline_splines             = self.get_streamlines_as_splines()
-        self.intersection_data              = self.find_all_intersections()
-        self.mesh.streamline_intersections  = self.intersection_data[0]['points']
+        
+        print('search for intersections')
+        self.intersection_data, self.intersections    = self.find_all_intersections()
+        
+        # self.intersection_data = self.get_intersections()
+        self.mesh.streamline_intersections  = self.intersection_data
+        self.mesh.streamline_intersections_points  = self.intersections
+
+        print('split intersections')
         self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
+        print('extract subdomains')
         self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
+        print('get quad mesh')
         self.quad_mesh                      =  self.get_mesh()
         self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
-
-
+        #
+        #
         self.add_graph_attr()
-
-    def merge_duplicate_streamlines(self, tolerance=1e-3, proximity_tolerance=1e-2):
-
-        mask_c0_nodes = self.mesh.x[:, 2] == 0
-        c0_nodes = (self.mesh.x[mask_c0_nodes, 0:2]).numpy()
-
-        # Helper function to check i f streamline == Boundary
-        def is_boundary_spline(point, tolerance=tolerance):
-            for node in c0_nodes:
-                if np.linalg.norm(point - node) < tolerance:
-                    return True
-            return False
-
-
- 
-        streamlines = self.mesh.streamlines
-        new_streamlines = []
-        processed_indices = set()
-        
-        for i in range(len(streamlines)):
-            if i in processed_indices:
-                continue
-                
-            current_streamline = streamlines[i]
-            current_start = current_streamline[0]
-            current_end = current_streamline[-1]
-
-            merged_streamline = current_streamline
-            merged = False
-            # Check if this streamline connects two boundary nodes - if so, preserve it
-            if is_boundary_spline(current_start) and is_boundary_spline(current_end):
-                new_streamlines.append(current_streamline)
-                processed_indices.add(i)
-                print(f'Streamline {i} preserved (connects termination nodes)')
-                continue
-            # First, check for exact matches (original logic)
-            for j in range(i+1, len(streamlines)):
-                if j in processed_indices:
-                    continue
-                
-                other_start = streamlines[j][0]
-                other_end = streamlines[j][-1]
-                if is_boundary_spline(other_start) and is_boundary_spline(other_end):
-                    continue
-
-                if (np.linalg.norm( other_end- current_start) < tolerance and 
-                    np.linalg.norm( other_start- current_end) < tolerance):
-                    # Found a perfect duplicate!
-                    processed_indices.add(i)
-                    processed_indices.add(j)
-                    
-                    # Merge the streamlines
-                    merged_streamline = self.interpolate_streamlines(current_streamline, streamlines[j])
-                    merged = True
-                    print(f'Streamlines {i} and {j} merged (exact match)')
-                    break
-            
-            # If no exact match found, check for near-miss matches
-            if not merged:
-                for j in range(i+1, len(streamlines)):
-                    if j in processed_indices:
-                        continue
-                    
-                    other_streamline = streamlines[j]
-                    other_start = other_streamline[0]
-                    other_end = other_streamline[-1]
-                    
-                    # Case 1: Other streamline's end is close to current's start, but start is not close to current's end
-                    if np.linalg.norm(other_end - current_start) < proximity_tolerance:
-                        # Check if other's start is anywhere near current's path
-                        closest_point_idx, min_dist = self.find_closest_point_on_streamline(current_streamline, other_start)
-                        
-                        if min_dist < proximity_tolerance:
-                            # Cut the current streamline at the closest point
-                            truncated_current = current_streamline[:closest_point_idx+1]
-                            # Reverse the other streamline
-                            reversed_other = np.flip(other_streamline, axis=0)
-                            # Merge them
-                            merged_streamline = self.interpolate_streamlines(reversed_other, truncated_current)
-                            processed_indices.add(i)
-                            processed_indices.add(j)
-                            merged = True
-                            print(f'Streamlines {i} and {j} merged (partial match - case 1)')
-                            break
-                    
-                    # Case 2: Other streamline's start is close to current's end, but end is not close to current's start
-                    elif np.linalg.norm(other_start - current_end) < proximity_tolerance:
-                        # Check if other's end is anywhere near current's path
-                        closest_point_idx, min_dist = self.find_closest_point_on_streamline(current_streamline, other_end)
-                        
-                        if min_dist < proximity_tolerance:
-                            # Cut the current streamline at the closest point
-                            truncated_current = current_streamline[:closest_point_idx+1]
-                            # Merge them
-                            merged_streamline = self.interpolate_streamlines(truncated_current, other_streamline)
-                            processed_indices.add(i)
-                            processed_indices.add(j)
-                            merged = True
-                            print(f'Streamlines {i} and {j} merged (partial match - case 2)')
-                            break
-                    
-                    # Case 3: Both streamlines miss each other's endpoints
-                    else:
-                        # Check if endpoints of both streamlines are close to the other's path
-                        closest_point_idx_curr, min_dist_curr = self.find_closest_point_on_streamline(other_streamline, current_end)
-                        closest_point_idx_other, min_dist_other = self.find_closest_point_on_streamline(current_streamline, other_end)
-                        
-                        if min_dist_curr < proximity_tolerance and min_dist_other < proximity_tolerance:
-                            # Truncate both streamlines at the closest points
-                            truncated_current = current_streamline[:closest_point_idx_other+1]
-                            truncated_other = other_streamline[:closest_point_idx_curr+1]
-                            # Merge them
-                            merged_streamline = self.interpolate_streamlines(truncated_current, truncated_other)
-                            processed_indices.add(i)
-                            processed_indices.add(j)
-                            merged = True
-                            print(f'Streamlines {i} and {j} merged (mutual partial match - case 3)')
-                            break
-            
-            new_streamlines.append(merged_streamline)
-            
-        return new_streamlines
-
-    def find_closest_point_on_streamline(self, streamline, point):
-        """
-        Find the index of the closest point on the streamline to the given point.
-        
-        Parameters:
-        - streamline: Array of points representing the streamline
-        - point: The point to find the closest point to
-        
-        Returns:
-        - Tuple of (index, distance) for the closest point
-        """
-        distances = np.linalg.norm(streamline - point, axis=1)
-        min_idx = np.argmin(distances)
-        return min_idx, distances[min_idx]
-        
-    # def merge_duplicate_streamlines(self, tolerance=1e-5):
-    #     streamlines = self.mesh.streamlines
-    #     new_streamlines = []
-    #     processed_indices = set()
-    #     
-    #     for i in range(len(streamlines)):
-    #         if i in processed_indices:
-    #             continue
-    #             
-    #         current_start = streamlines[i][0]
-    #         current_end = streamlines[i][-1]
-    #         merged_streamline = streamlines[i]
-    #         
-    #         for j in range(i+1, len(streamlines)):
-    #             if j in processed_indices:
-    #                 continue
-    #                 
-    #             if (np.linalg.norm(streamlines[j][-1] - current_start) < tolerance and 
-    #                 np.linalg.norm(streamlines[j][0] - current_end) < tolerance):
-    #                 # Found a duplicate!
-    #                 duplicate_found = True
-    #                 processed_indices.add(i)
-    #                 processed_indices.add(j)
-    #                 
-    #                 # Merge the streamlines
-    #                 merged_streamline = self.interpolate_streamlines(streamlines[i], streamlines[j])
-    #                 print('streamlines merged')
-    #                 break
-    #         
-    #         new_streamlines.append(merged_streamline)        
-    #     return new_streamlines
 
     def interpolate_streamlines(self, streamline_ij, streamline_ji, num_points=100):
                # Convert streamlines to splines
@@ -492,7 +329,6 @@ class StreamlineSimplificator:
     def get_intersections(self):
 
         intersections = [] 
-        dicc_id = 0  
         for i in range(len(self.streamline_splines)):
             streamline_I = self.streamline_splines[i]  
             for j in range(i + 1, len(self.streamline_splines)): 
@@ -503,7 +339,7 @@ class StreamlineSimplificator:
     
                 if confirmed_intersection:
 
-                    intersections.append(confirmed_intersection)
+                    intersections.append(confirmed_intersection[0])
                 
         return intersections
 
@@ -512,7 +348,7 @@ class StreamlineSimplificator:
             
             splines = self.streamline_splines 
             all_intersections = [] 
-    
+            intersections = []  
             for i in range(len(splines)):
                 for j in range(i+1, len(splines)):
                     if splines[i] is None or splines[j] is None:
@@ -522,6 +358,8 @@ class StreamlineSimplificator:
     
                     for point, t1, t2 in intersections:
                         all_intersections.append((point, i, t1, j, t2))
+                        intersections.append(intersections[0])
+
     
             unique_points = []
             point_indices = {}  
@@ -562,12 +400,12 @@ class StreamlineSimplificator:
                 'points': unique_points,
                 'spline_intersections': dict(spline_intersections),
                 'connectivity': dict(connectivity)
-            }, intersections
+            },unique_points
     
 
-    def find_spline_intersections_with_params(self,spline1, spline2, tolerance=1e-3, num_samples=10):
+    def find_spline_intersections_with_params(self,spline1, spline2, tolerance=1e-5, num_samples=3):
         
-        offset_boundingBox = 0.25 
+        offset_boundingBox = 0.05 
         tck1, u1 = spline1
         tck2, u2 = spline2
 
@@ -613,17 +451,12 @@ class StreamlineSimplificator:
                     u2_val = u2_fine[j]
                     potential_intersections.append((u1_val, u2_val))
 
-        # Refine potential intersections
         confirmed_intersections = []
 
         for u1_val, u2_val in potential_intersections:
-            # Define a function to find the root of (distance between pon/fioints on the splines)
+            # Define a function to find the root of (distance between points on the splines)
             def distance_func(params):
                 t1, t2 = params
-                # Ensure t1 and t2 are within [0, 1]
-                t1 = max(0, min(1, t1))
-                t2 = max(0, min(1, t2))
-
                 point1 = np.array(splev(t1, tck1)).reshape(2)
                 point2 = np.array(splev(t2, tck2)).reshape(2)
 
@@ -639,6 +472,7 @@ class StreamlineSimplificator:
 
                 # Check if t1_intersect and t2_intersect are within [0, 1]
                 if 0 <= t1_intersect <= 1 and 0 <= t2_intersect <= 1:
+                    
                     point1 = np.array(splev(t1_intersect, tck1)).reshape(2)
                     point2 = np.array(splev(t2_intersect, tck2)).reshape(2)
 

@@ -16,6 +16,26 @@ class MeshGenerator:
 
         self.mesh = self.getFaceCenterPoints()
         self.normalize_mesh_coordinates()
+    
+    def export_to_obj(self, filename="mesh.obj"):
+            nodes = self.mesh.x
+            nodes[:, 2] = 0
+            faces = self.mesh.faces
+    
+            nodes = nodes.numpy()
+            faces = faces.numpy().T
+    
+            with open(filename, 'w') as file:
+                for node in nodes:
+                    file.write(f"v {node[0]} {node[1]} {node[2]}\n")
+    
+                if faces.shape[1] == 3:  # Triangular faces
+                    for face in faces:
+                        file.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
+                elif faces.shape[1] == 4:  # Quadrilateral faces
+                    file.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1} {face[3] + 1}\n")
+    
+            print(f"Mesh exported to {filename}")
 
     def get_mesh_of_airfoil(self, lc, airfoil):
         gmsh.initialize()
@@ -250,4 +270,4 @@ class MeshGenerator:
         mesh.centerPoints = barycenters
         return mesh
 
-
+    
