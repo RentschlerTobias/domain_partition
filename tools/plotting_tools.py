@@ -271,7 +271,7 @@ def plot_vector_field(mesh, init=False, output_file="./figures/vector_field.png"
     # plt.close()
 
 
-def plot_faces(mesh, output_file="./figures/faces.png", face_color=None):
+def plot_faces(mesh, output_file="./figures/faces.png", colored=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -279,17 +279,17 @@ def plot_faces(mesh, output_file="./figures/faces.png", face_color=None):
     plt.figure(figsize=(8, 8))
     for face_ids in mesh.faces.T:
         face = nodes[face_ids, :]
-        if face_color:
+        if colored:
             face_color = np.random.rand(3,)  # generate random rgb values
 
         plt.fill(face[:, 0], face[:, 1], color=face_color, edgecolor='gray', linewidth=0.5)
 
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.grid(True)
+    plt.axis('off')
+    plt.axis('equal')  # Ensure equal scaling for x and y
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
 
-    plt.savefig(output_file, dpi=300)
+    plt.savefig(output_file, dpi=300, transparent=True)
 
 
 def plot_one_separatrices(mesh, ID, output_file="./figures/separatrix.png"):

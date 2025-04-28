@@ -26,7 +26,7 @@ plot_cross_field(mesh, init=False, output_file=f"./figures/cross_field_propagate
 plot_singularities(mesh, output_file=f"./figures/mesh_singularities_{file}.png")
 plot_streamlines(mesh, output_file=f"./figures/streamlines_colored_{file}.png", colored=True)
 plot_intersections(mesh_pp, output_file=f"./figures/intersections_{file}.png")
-plot_faces(blocked_mesh, output_file=f"./figures/faces_{file}.png")
+plot_faces(blocked_mesh, output_file=f"./figures/faces_{file}.png", colored=True)
 
 len(blocked_mesh.edge_subdomain_points)
 
