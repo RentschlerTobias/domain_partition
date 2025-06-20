@@ -126,7 +126,6 @@ class StreamlineGenerator:
                     if torch.abs(angle_diff) < torch.pi/8:
                         streamline.append(coord_singularity.numpy())
                         break
-                    print(coord_singularity)
 
 
             next_point = current_point + step_size * average_direction

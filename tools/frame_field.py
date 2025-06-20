@@ -233,7 +233,7 @@ class FrameField:
     # Maximale Anzahl von Iterationen und Toleranz für die Konvergenz
     def Linearization_Norm_Constraint(self, A, b, u_init):
 
-        max_iterations = 100
+        max_iterations = 1000
         tolerance = 1e-6
 
         # Initialisierung der aktuellen Lösung
@@ -254,7 +254,7 @@ class FrameField:
             # Aufbau der Matrix C für die Nebenbedingungen
             C = np.zeros((num_nodes, num_dofs))
             d = np.ones(num_nodes)  # Rechte Seite der Nebenbedingungen
-
+            diff = np.inf
             for i in range(num_nodes):
                 # Indizes der Freiheitsgrade für Knoten i
                 dof_x = 2 * i
@@ -312,9 +312,12 @@ class FrameField:
             if diff < tolerance:
                 print(f"Konvergenz erreicht nach {n+1} Iterationen.")
                 self.mesh.frame_field_iteration_number = n
+                self.mesh.frame_field_tol = diff
                 break
         else:
             print("Maximale Anzahl von Iterationen erreicht.")
-            self.mesh.frame_field_iteration_number = 100
+            self.mesh.frame_field_iteration_number = max_iterations
+            self.mesh.frame_field_tol = diff
+
 
         return u_current

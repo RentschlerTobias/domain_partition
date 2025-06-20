@@ -86,7 +86,7 @@ class MeshGenerator:
         occ.synchronize()
         if self.is_quad_mesh == True:
             # Mesh settings
-            gmsh.option.setNumber("Mesh.Algorithm", 11)  # MeshAdapt algorithm
+            gmsh.option.setNumber("Mesh.Algorithm", 5)  # MeshAdapt algorithm
             gmsh.option.setNumber("Mesh.RecombineAll", 1)
             gmsh.option.setNumber("Mesh.Smoothing", 10)  # Smoothing steps
 

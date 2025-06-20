@@ -7,15 +7,14 @@ import matplotlib.pyplot as plt
 class Evaluation:
     def __init__(self,path = None):
         if path == None:
-           path= "./saved_meshes/frame_field_time_measured/all_meshes_incl_time.pt"
-
+           path="./saved_meshes/frame_field_time_measured/all_meshes_incl_time.pt" 
 
         self.meshes = torch.load(path)
-        self.grouped_data,self.bin_edges = self.group_meshes(self.meshes)
-        # self.generate_box_plots(output_file="./figures/frame_field_time_numerical.png")
-        # self.generate_box_plots(eval_mode_gnn=True,output_file="./figures/frame_field_time_gnn.png")
+        # self.grouped_data,self.bin_edges = self.group_meshes(self.meshes)
+        # self.generate_box_plots(output_file="./figures/frame_field_time_numerical_v2.png")
+        # self.generate_box_plots(eval_mode_gnn=True,output_file="./figures/frame_field_time_gnn_v2.png")
         self.plot_comparison()
-
+#
     def group_meshes(self,list_of_meshes):
         
         num_intervals = 10
@@ -52,11 +51,12 @@ class Evaluation:
         time_num = []
 
         for mesh in self.meshes:
-            num_nodes.append(mesh.x.size(0))
-            time_gnn.append(mesh.time_gnn)
-            time_num.append(mesh.time_frame_field_generator)
+            if mesh.time_gnn< 0.2:
+                num_nodes.append(mesh.x.size(0))
+                time_gnn.append(mesh.time_gnn)
+                time_num.append(mesh.time_frame_field_generator)
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(5, 6))
         plt.scatter(num_nodes, time_gnn, label="GNN", marker='o', color='b')
         plt.xlabel('Number of Nodes')
         plt.ylabel('Computation Time (seconds)')
@@ -65,7 +65,7 @@ class Evaluation:
         plt.tight_layout()
         plt.savefig("./figures/time_comparison_gnn.png", transparent=True,dpi=300)
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(5, 6))
         plt.scatter(num_nodes, time_num, label="Numeric", marker='x', color='r')
 
         plt.xlabel('Number of Nodes')
@@ -75,6 +75,16 @@ class Evaluation:
         plt.tight_layout()
         
         plt.savefig("./figures/time_comparison_num.png", transparent=True,dpi=300)
+
+        plt.figure(figsize=(5, 6))
+        plt.scatter(num_nodes, time_gnn, label="GNN", marker='o', color='b')
+        plt.scatter(num_nodes, time_num, label="Numeric", marker='x', color='r')
+        plt.xlabel('Number of Nodes')
+        plt.ylabel('Computation Time (seconds)')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig("./figures/time_comparison.png", transparent=True,dpi=300)
 
 
     def generate_box_plots(self,eval_mode_gnn = False,output_file="./figures/frame_field_time_bp.png"):

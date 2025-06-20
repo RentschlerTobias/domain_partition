@@ -6,7 +6,7 @@ from torch_geometric.data import Data
 
 
 class Transfinite_Interpolation:
-    def __init__(self, blocked_mesh, mesh_size=0.5):
+    def __init__(self, blocked_mesh, mesh_size=0.4):
 
         self.blocked_mesh = blocked_mesh
         self.nodes = self.blocked_mesh.x
@@ -14,7 +14,7 @@ class Transfinite_Interpolation:
         self.faces = self.blocked_mesh.faces
 
         self.edge_index = self.blocked_mesh.edge_subdomain_index
-        self.edge_points = self.blocked_mesh.streamlines
+        self.edge_points = self.blocked_mesh.edge_subdomain_points
 
         self.mesh_size = mesh_size
 
@@ -55,26 +55,28 @@ class Transfinite_Interpolation:
         else:
             return None
 
-    def generate(self, transfinite_divisions=20):
+    def generate(self, transfinite_divisions=10):
+        
+        gmsh.option.setNumber("Mesh.RecombineAll", 1)  # Enable quad recombination
+        gmsh.option.setNumber("Mesh.Algorithm", 8)  # Use Delaunay triangulation
+        gmsh.model.mesh.setTransfiniteAutomatic([], cornerAngle=2.35, recombine=True)
+        
 
         gmsh.model.geo.synchronize()
         point_id_counter = 1
         curve_id_counter = 1
 
-        # First, add all nodes as GMSH points
         for i, pt in enumerate(self.nodes):
             tag = gmsh.model.geo.addPoint(pt[0], pt[1], 0, self.mesh_size, point_id_counter)
             self.point_tag_map[i] = tag
             point_id_counter += 1
 
-        # Add curves using the edge data (connecting intersection points)
         for i in range(self.edge_index.shape[1]):
             start_idx = self.edge_index[0, i].item()
             end_idx = self.edge_index[1, i].item()
             start_tag = self.point_tag_map[start_idx]
             end_tag = self.point_tag_map[end_idx]
 
-            # Get the edge points for this edge
             edge_points = self.edge_points[i]
 
             # Only add intermediate points if there are more than just start and end
@@ -129,11 +131,11 @@ class Transfinite_Interpolation:
                 # Continue with the next face
                 continue
 
+
         gmsh.model.geo.synchronize()
-        gmsh.model.mesh.setTransfiniteAutomatic([], cornerAngle=2.35, recombine=True)
 
     def get_mesh(self):
-        # gmsh.option.setNumber("Mesh.RecombineAll", 1)  # Enable recombination of triangles into quads
+
         gmsh.model.mesh.generate(2)
         gmsh.write('./transfinite_quad_mesh.msh')
 

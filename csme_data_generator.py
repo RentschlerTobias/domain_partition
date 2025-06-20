@@ -6,11 +6,11 @@ import numpy as np
 
 def main():
     meshes = []
-    base_dir = "./saved_meshes/frame_field_time_measured"
+    base_dir = "./saved_meshes/frame_field_time_measured_v2"
     os.makedirs(base_dir, exist_ok=True)
 
-    num_meshes_to_generate = 1000
-    save_points = 100
+    num_meshes_to_generate = 100
+    save_points = 10
 
     for i in range(num_meshes_to_generate):
         airfoil = NACA_airfoil()

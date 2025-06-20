@@ -37,7 +37,7 @@ def plot_block_mesh(block_mesh, output_file="./figures/blocking.png"):
     plt.savefig(output_file, dpi=300, transparent=True)
 
 
-def plot_streamlines(mesh, output_file="./figures/streamlines.png", colored=False):
+def plot_domain_partition(mesh, output_file="./figures/streamlines.png", colored=False):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -46,26 +46,77 @@ def plot_streamlines(mesh, output_file="./figures/streamlines.png", colored=Fals
     # Create a figure for plotting
     plt.figure(figsize=(5, 5))
 
-    try:
-        faces = mesh.triangle_faces.T
-        nodes = mesh.triangle_nodes[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
-
-    except Exception as no_quad_mesh:
-        faces = mesh.faces.T
-        nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
-
-    for face in faces:  # Transposing to iterate through each face
-        triangle = nodes[face, :]
-        plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
-
     for streamline in streamlines:
         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
         if colored == False:
-            plt.plot(streamline[:, 0], streamline[:, 1], 'r')
+            plt.plot(streamline[:, 0], streamline[:, 1], 'k')
         else:
             color = np.random.rand(3,)  # generate random rgb values
             plt.plot(streamline[:, 0], streamline[:, 1], color=color)
 
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent=True)
+
+
+def plot_streamlines(mesh, output_file="./figures/streamlines.png", colored=False):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    streamlines = mesh.streamlines
+    edges = mesh.edge_index
+    
+    corner_nodes = mesh.x[mesh.x[:,2]==0,0:2]
+
+
+
+    # Create a figure for plotting
+    plt.figure(figsize=(5, 5))
+
+    # try:
+    #     faces = mesh.triangle_faces.T
+    #     nodes = mesh.triangle_nodes[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+    #
+    # except Exception as no_quad_mesh:
+    #     faces = mesh.faces.T
+    #     nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
+    #
+    # for face in faces:  # Transposing to iterate through each face
+    #     triangle = nodes[face, :]
+    #     plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
+    #
+    for streamline in streamlines:
+        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
+        start = streamline[0,:]
+        end = streamline[-1,:]
+
+        distances_start        = np.linalg.norm(corner_nodes - start, axis=1)
+        distances_end        = np.linalg.norm(corner_nodes - end, axis=1)
+
+        distance_start = np.min(np.abs(distances_start))
+        distance_end   = np.min(np.abs(distances_end))
+
+        tol = 1e-3
+        if colored == False:
+            if distance_start < tol and distance_end < tol:
+                color = 'k'
+                plt.plot(streamline[:, 0], streamline[:, 1], color=color)
+            else:
+                color = 'r'
+                # plt.plot(streamline[:, 0], streamline[:, 1], color=color)
+
+        else:
+            
+            if distance_start < tol and distance_end < tol:
+                color = 'k'
+                plt.plot(streamline[:, 0], streamline[:, 1], color=color)
+            else:
+                
+                color = np.random.rand(3,)  # generate random rgb values
+                # plt.plot(streamline[:, 0], streamline[:, 1], color=color)
+
+   
     plt.axis('off')
     plt.axis('equal')  # Equal aspect ratio
     plt.tight_layout()
@@ -281,7 +332,8 @@ def plot_faces(mesh, output_file="./figures/faces.png", colored=None):
         face = nodes[face_ids, :]
         if colored:
             face_color = np.random.rand(3,)  # generate random rgb values
-
+        else:
+            face_color ="none"
         plt.fill(face[:, 0], face[:, 1], color=face_color, edgecolor='gray', linewidth=0.5)
 
     plt.axis('off')

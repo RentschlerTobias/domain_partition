@@ -8,31 +8,20 @@ from torch_geometric.data import Data
 import numpy as np
 import torch
 
-# from csme_plots import Evaluation
-# eval = Evaluation()
-#
 
-
-mesh = torch.load("./saved_meshes/good_mesh.pt")
-len(mesh.streamlines)
-streamline = StreamlineGenerator(mesh)
-
-len(streamline.mesh.streamlines)
-streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
-
-len(streamlines_post_processed.mesh.streamlines)
-# blocked_mesh = streamlines_post_processed.quad_mesh
-streamlines_post_processed.mesh.intersections
-file = 'success'
-
-plot_streamlines(streamline.mesh,output_file=f"./figures/streamlines_{file}.png",colored=True)
-plot_intersections(streamlines_post_processed.mesh, output_file=f"./figures/intersections_{file}.png")
-# plot_faces(blocked_mesh,output_file=f"./figures/faces_{file}.png")
-
-
+# mesh = torch.load("./saved_meshes/good_mesh.pt")
 
 airfoil = NACA_airfoil()
-mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=0.05)
+mesh_gen = MeshGenerator(airfoil, quadMesh=True, lc=0.05)
+mesh = mesh_gen.mesh
+
+file = 'csme_motivation_06'
+
+plot_mesh(mesh, output_file=f"./figures/{file}.png")
+
+
+
+
 frameField = FrameField(mesh_gen.mesh)
 streamline = StreamlineGenerator(frameField.mesh)
 streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
