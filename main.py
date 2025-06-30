@@ -12,47 +12,30 @@ import torch
 
 # mesh = torch.load("./saved_meshes/good_mesh.pt")
 
-
-airfoil = NACA_airfoil()
-mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=0.05)
-frameField = FrameField(mesh_gen.mesh)
-streamline = StreamlineGenerator(frameField.mesh)
-streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
-blocked_mesh = streamlines_post_processed.quad_mesh
-
-file = 'test'
-
-plot_streamlines(streamline.mesh, output_file=f"./figures/streamlines_{file}.png")
-plot_intersections(streamlines_post_processed.mesh, output_file=f"./figures/intersections_{file}.png")
-plot_faces(blocked_mesh, output_file=f"./figures/faces_{file}.png")
-
-quad_mesh = Transfinite_Interpolation(blocked_mesh)
-
-plot_mesh(quad_mesh.quad_mesh, output_file=f"./figures/transfinite_{file}.png")
-
-tri_faces = streamline.mesh.faces
-tri_face = tri_faces[:, 0]
-tri_nodes = streamline.mesh.x[tri_faces, 0:2]
-
-AB = tri_nodes[0, :] - tri_nodes[1, :]
-AC = tri_nodes[0, :] - tri_nodes[0, :]
-cross_product = AB[:, 0] * AC[:, 1] - AB[:, 1] * AC[:, 0]
-
-AB.size()
-
-
 def main():
 
-    airfoil = NACA_airfoil()
-    mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=0.05)
-    frameField = FrameField(mesh_gen.mesh)
-    streamline = StreamlineGenerator(frameField.mesh)
-    streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
-    blocked_mesh = streamlines_post_processed.quad_mesh
-    plot_streamlines(streamline.mesh)
-    plot_intersections(streamlines_post_processed.mesh)
-    plot_faces(blocked_mesh)
-
+    is_valid = False
+    counter = 0
+    while is_valid == False:
+    
+        airfoil = NACA_airfoil()
+        mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=0.05)
+        frameField = FrameField(mesh_gen.mesh)
+        streamline = StreamlineGenerator(frameField.mesh)
+        streamlines_post_processed = StreamlineSimplificator(streamline.mesh)
+        blocked_mesh = streamlines_post_processed.quad_mesh
+        transfiniteInterpolation = Transfinite_Interpolation(blocked_mesh)
+        quad_mesh =transfiniteInterpolation.quad_mesh
+   
+        file = 'test'
+        
+        plot_streamlines(streamline.mesh, output_file=f"./figures/streamlines_{file}.png")
+        plot_intersections(streamlines_post_processed.mesh, output_file=f"./figures/intersections_{file}.png")
+        plot_faces(blocked_mesh, output_file=f"./figures/faces_{file}.png")
+        plot_mesh(quad_mesh, output_file=f"./figures/transfinite_{file}.png")
+    
+        is_valid=is_mesh_valid(streamline.mesh,quad_mesh)
+        print(f'valid mesh{is_valid}, counter: {counter}')
 
 def is_mesh_valid(tri_mesh, quad_mesh, tol=1e-6):
 
