@@ -10,3 +10,4 @@ from .streamline_simplificator import StreamlineSimplificator
 from .separatrix_generator_v2 import SeparatrixGenerator_v2
 from .import_obj_to_torch import MeshFromFieldgen
 from .transfinite_interpolation import Transfinite_Interpolation
+from .check_mesh import MeshCheck
