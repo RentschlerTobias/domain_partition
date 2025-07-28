@@ -1,10 +1,11 @@
 import numpy as np
 import torch
-
-
+import time
+import os
 class NACA_airfoil:
     def __init__(self):
-
+        
+        np.random.seed(int(time.time() * 1000) % 2**32 + os.getpid())
         profils = ['2412', '6412']
         self.naca_profil = profils[np.random.randint(2)]
 
@@ -16,7 +17,7 @@ class NACA_airfoil:
         self.c = 1.0
 
         x = np.linspace(0, 1, 100)
-        self.random_angle = 1.7*np.pi + 0.1 * np.pi * np.random.rand()
+        self.random_angle = 1.9*np.pi * np.random.rand()
 
         self.suction_side, self.pressure_side = self.naca4(x)
 

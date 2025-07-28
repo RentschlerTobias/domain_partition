@@ -7,6 +7,7 @@ from .separatrix_generator import SeparatrixGenerator
 from .plotting_tools import *
 from .singularity_detector import detect_singularities
 from .streamline_simplificator import StreamlineSimplificator
+from .streamline_post_processor import StreamlinePostProcessor
 from .separatrix_generator_v2 import SeparatrixGenerator_v2
 from .import_obj_to_torch import MeshFromFieldgen
 from .transfinite_interpolation import Transfinite_Interpolation

@@ -7,7 +7,7 @@ from sklearn.cluster import DBSCAN
 from torch._prims_common import dtype_to_type
 from torch_geometric.data import Data
 
-from .streamline_post_processor import StreamlinePostProcessor
+from tools import StreamlinePostProcessor  
 
 class StreamlineSimplificator:
     def __init__(self, mesh):
@@ -18,51 +18,25 @@ class StreamlineSimplificator:
         print('search for intersections')
         self.intersection_data, self.intersections    = self.find_all_intersections()
 
-        # self.intersection_data = self.get_intersections()
+        self.intersection_data = self.get_intersections()
         self.mesh.streamline_intersections  = self.intersection_data
         self.mesh.streamline_intersections_points  = self.intersections
 
+        print('split intersections')
         self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
-        self.apply_streamline_post_processing()
+        post_processor = StreamlinePostProcessor(self)
+        corrected_streamlines = post_processor.run_post_processing()
+
+        if corrected_streamlines is not None:
+            self.mesh.streamlines = corrected_streamlines
+        print('extract subdomains')
         self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
+        print('get quad mesh')
         self.quad_mesh                      = self.get_mesh()
         self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
         #
         #
         self.add_graph_attr()
-
-
-    def apply_streamline_post_processing(self):
-        """
-        Apply streamline post-processing to handle problematic cases
-        This modifies self.mesh.streamlines and regenerates dependent data
-        """
-        try:
-            # Create post-processor and get corrected streamlines
-            post_processor = StreamlinePostProcessor(self)
-            corrected_streamlines = post_processor.run_post_processing()
-            
-            if corrected_streamlines is not None:
-                print('  ✓ Post-processing successful')
-                # Update streamlines with post-processed ones
-                self.mesh.streamlines = corrected_streamlines
-                
-                # Regenerate dependent data with new streamlines
-                print('  Regenerating splines and intersections...')
-                self.streamline_splines = self.get_streamlines_as_splines()
-                self.intersection_data, self.intersections = self.find_all_intersections()
-                self.mesh.streamline_intersections = self.intersection_data
-                self.mesh.streamline_intersections_points = self.intersections
-                
-                # Regenerate quad data
-                self.quad_edges = self.split_splines_at_intersections(self.intersection_data)
-                self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
-                
-            else:
-                print('  ⚠ Post-processing failed, using original streamlines')
-        except Exception as e:
-            print(f'  ❌ Error during post-processing: {e}')
-            print('  Using original streamlines')
 
     def interpolate_streamlines(self, streamline_ij, streamline_ji, num_points=100):
         # Convert streamlines to splines

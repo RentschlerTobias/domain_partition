@@ -23,6 +23,7 @@ def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
     streamlines         = tri_mesh.streamlines
     frame_field_angle   = tri_mesh.frame_field_iteration_number
     frame_field_u       = tri_mesh.u
+    singularities_coords = tri_mesh.singularities_coords
     frame_field_iteration_number   = tri_mesh.frame_field_iteration_number
 
     frame_field_time = tri_mesh.time_frame_field_generator
@@ -38,7 +39,7 @@ def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
     quad_faces          = quad_mesh.faces
     quad_edges          = quad_mesh.edge_index
     
-    final_mesh          = Data(blocking_nodes=blocking_nodes, blocking_faces = blocking_faces, quad_coordinates= quad_coordinates, quad_faces= quad_faces,quad_edges=quad_edges,streamline_intersections_points=streamline_intersections_points,singularities=singularities,frame_field_time=frame_field_time,frame_field_iteration_number=frame_field_iteration_number,frame_field_u=frame_field_u,frame_field_angle=frame_field_angle,streamlines=streamlines,tri_edges_attr=tri_edges_attr,tri_mesh_face_attr=tri_mesh_face_attr,tri_edges=tri_edges,tri_faces=tri_faces,tri_coordinates=tri_coordinates)
+    final_mesh          = Data(blocking_nodes=blocking_nodes, blocking_faces = blocking_faces, quad_coordinates= quad_coordinates, quad_faces= quad_faces,quad_edges=quad_edges,streamline_intersections_points=streamline_intersections_points,singularities=singularities, singularities_coords= singularities_coords,frame_field_time=frame_field_time,frame_field_iteration_number=frame_field_iteration_number,frame_field_u=frame_field_u,frame_field_angle=frame_field_angle,streamlines=streamlines,tri_edges_attr=tri_edges_attr,tri_mesh_face_attr=tri_mesh_face_attr,tri_edges=tri_edges,tri_faces=tri_faces,tri_coordinates=tri_coordinates)
 
     return final_mesh
 
@@ -70,10 +71,10 @@ def get_mesh():
 
         quad_mesh                   = transfiniteInterpolation.quad_mesh
         tri_mesh                    = streamline.mesh 
-        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.015)
-        is_valid                    = mesh_check.is_valid
+        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.01)
+        success                     = mesh_check.is_valid
         print(f'!!! \n area difference: \n {mesh_check.quad_area-mesh_check.tri_area}\n !!!')
-        if is_valid == True:
+        if success == True:
             mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh) 
             print('succssess')
             return mesh
@@ -83,3 +84,47 @@ def get_mesh():
     except Exception as e:
         print(f'\n domain partition failed: {e} \n')
  
+def main():
+
+    number_of_meshes =100
+    checkpoint_interval = 10  # Speichere alle x erfolgreiche Meshes
+    checkpoint_dir = "./saved_meshes/checkpoints"
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    database = []
+    successful_meshes = 0  
+    failed_meshes = 0  
+
+    for n in range(number_of_meshes):
+        is_valid = False
+        
+        while is_valid == False:
+            mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=600)
+                           
+            if mesh_data is not None:
+                is_valid = True    
+                database.append(mesh_data)
+                successful_meshes += 1
+                print(f"successful meshes: {successful_meshes}")
+                
+                if n+1 % checkpoint_interval == 0:
+                    try:
+                        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
+                        torch.save(database, checkpoint_path)
+                        database = [] #resett database
+                        print(f"Checkpoint gespeichert: {checkpoint_path}")
+                    except Exception as checkpoint_error:
+                        print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
+            else:
+                failed_meshes += 1
+                print(f"Warning: Transifinite Mesh is not valid")
+
+    print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes }') 
+
+    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
+    torch.save(database, checkpoint_path)
+    print(f"Final Checkpoint reached")
+
+if __name__ == "__main__":                                                                         
+    main()

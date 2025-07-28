@@ -1,5 +1,26 @@
 from tools import streamline_simplificator
 
+def plot_final_mesh(mesh,output_file="./figures/quad_mesh.png"):
+    
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    figsize = (5, 5)
+    plt.figure(figsize=figsize)
+    faces = mesh.quad_faces
+    nodes = mesh.quad_coordinates
+
+    for face in faces.T:
+         coords = nodes[face]  # shape (4, 2)
+         color = np.random.rand(3,)  # Random RGB color for each face
+         plt.fill(coords[:, 0], coords[:, 1], color=color, edgecolor='gray', linewidth=0.5)
+        
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent=True)
+
+
 
 def plot_block_mesh(block_mesh, output_file="./figures/blocking.png"):
 
@@ -65,57 +86,18 @@ def plot_streamlines(mesh, output_file="./figures/streamlines.png", colored=Fals
     import numpy as np
 
     streamlines = mesh.streamlines
-    edges = mesh.edge_index
-    
-    corner_nodes = mesh.x[mesh.x[:,2]==0,0:2]
-
 
 
     # Create a figure for plotting
     plt.figure(figsize=(5, 5))
 
-    # try:
-    #     faces = mesh.triangle_faces.T
-    #     nodes = mesh.triangle_nodes[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
-    #
-    # except Exception as no_quad_mesh:
-    #     faces = mesh.faces.T
-    #     nodes = mesh.x[:, 0:2]  # Assuming we are using 2D coordinates (x, y)
-    #
-    # for face in faces:  # Transposing to iterate through each face
-    #     triangle = nodes[face, :]
-    #     plt.fill(triangle[:, 0], triangle[:, 1], edgecolor='gray', fill=False, linewidth=0.5)
-    #
+    # color = 'r'
+    color =np.random.rand(3) 
     for streamline in streamlines:
         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
         start = streamline[0,:]
         end = streamline[-1,:]
-
-        distances_start        = np.linalg.norm(corner_nodes - start, axis=1)
-        distances_end        = np.linalg.norm(corner_nodes - end, axis=1)
-
-        distance_start = np.min(np.abs(distances_start))
-        distance_end   = np.min(np.abs(distances_end))
-
-        tol = 1e-3
-        if colored == False:
-            if distance_start < tol and distance_end < tol:
-                color = 'k'
-                plt.plot(streamline[:, 0], streamline[:, 1], color=color)
-            else:
-                color = 'r'
-                # plt.plot(streamline[:, 0], streamline[:, 1], color=color)
-
-        else:
-            
-            if distance_start < tol and distance_end < tol:
-                color = 'k'
-                plt.plot(streamline[:, 0], streamline[:, 1], color=color)
-            else:
-                
-                color = np.random.rand(3,)  # generate random rgb values
-                # plt.plot(streamline[:, 0], streamline[:, 1], color=color)
-
+        plt.plot(streamline[:, 0], streamline[:, 1], color=color)
    
     plt.axis('off')
     plt.axis('equal')  # Equal aspect ratio
@@ -193,7 +175,7 @@ def plot_mesh(mesh, output_file="./figures/mesh_boundary_edges.png"):
     for i in range(mesh.edge_index.size(1)):
         p1 = mesh.x[mesh.edge_index[0, i]]
         p2 = mesh.x[mesh.edge_index[1, i]]
-        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], linestyle='-', color='k')
+        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], linestyle='-', color='b')
     plt.axis('off')
     plt.axis('equal')  # Equal aspect ratio
     plt.tight_layout()
