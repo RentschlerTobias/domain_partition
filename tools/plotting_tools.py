@@ -1,5 +1,25 @@
 from tools import streamline_simplificator
 
+
+def plot_post_processed_streamline(streamlines,output_file="./figures/streamlines_post_processed.png"):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+
+    for streamline in streamlines:
+        color =np.random.rand(3) 
+        streamline = np.array(streamline.nodes)  # Convert to numpy array for easier plotting
+        start = streamline[0,:]
+        end = streamline[-1,:]
+        plt.plot(streamline[:, 0], streamline[:, 1], color=color)
+   
+    plt.axis('off')
+    plt.axis('equal')  # Equal aspect ratio
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent=True)
+
+
+
 def plot_final_mesh(mesh,output_file="./figures/quad_mesh.png"):
     
     import matplotlib.pyplot as plt
