@@ -13,7 +13,11 @@ class StreamlineSimplificator:
     def __init__(self, mesh):
 
         self.mesh = mesh
-        self.streamline_splines             = self.get_streamlines_as_splines()
+        # Singularity, Streamlines    = self.pre_processing(mesh.streamlines)
+        # Singularity,Streamlines     = self.cut_streamlines(Singularity, Streamlines)
+        # self.mesh.streamlines       = self.merge_streamlines(Singularity,Streamlines)
+        #
+        self.streamline_splines        = self.get_streamlines_as_splines()
 
         print('search for intersections')
         self.intersection_data, self.intersections    = self.find_all_intersections()
@@ -23,7 +27,6 @@ class StreamlineSimplificator:
         self.mesh.streamline_intersections_points  = self.intersections
 
         self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
-        self.apply_streamline_post_processing()
         self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
         self.quad_mesh                      = self.get_mesh()
         self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
@@ -31,38 +34,206 @@ class StreamlineSimplificator:
         #
         self.add_graph_attr()
 
-
-    def apply_streamline_post_processing(self):
-        """
-        Apply streamline post-processing to handle problematic cases
-        This modifies self.mesh.streamlines and regenerates dependent data
-        """
-        try:
-            # Create post-processor and get corrected streamlines
-            post_processor = StreamlinePostProcessor(self)
-            corrected_streamlines = post_processor.run_post_processing()
+    def cut_streamlines(self, Singularity, Streamlines):
+        print("\n function cut_streamlines \n")
+        for key in Singularity.keys():
+            streamlines_ending = Singularity[key]["ending_streamlines"]
             
-            if corrected_streamlines is not None:
-                print('  ✓ Post-processing successful')
-                # Update streamlines with post-processed ones
-                self.mesh.streamlines = corrected_streamlines
+            if len(streamlines_ending) == 0:  # Fixed: was <0
+                continue
                 
-                # Regenerate dependent data with new streamlines
-                print('  Regenerating splines and intersections...')
-                self.streamline_splines = self.get_streamlines_as_splines()
-                self.intersection_data, self.intersections = self.find_all_intersections()
-                self.mesh.streamline_intersections = self.intersection_data
-                self.mesh.streamline_intersections_points = self.intersections
+            for streamline_ends_here in streamlines_ending:
+                if streamline_ends_here not in Streamlines:
+                    continue
+                    
+                smallest_distance = np.inf
+                starting_singularity = Streamlines[streamline_ends_here]["starting_singularity"]
                 
-                # Regenerate quad data
-                self.quad_edges = self.split_splines_at_intersections(self.intersection_data)
-                self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
+                if starting_singularity not in Singularity:
+                    continue
+                    
+                singularity_coords = Singularity[key]["coords"]
+                starting_streamlines = Singularity[starting_singularity]["starting_streamlines"]
+    
+                for starting_streamline in starting_streamlines:
+                    if starting_streamline not in Streamlines:
+                        continue
+                        
+                    coords = Streamlines[starting_streamline]["coords"]
+                    if coords is None or len(coords) == 0:
+                        continue
+                        
+                    distance = np.linalg.norm(coords - singularity_coords, axis=1)
+                    distance_min_idx = np.argmin(distance)
+                    distance_min = distance[distance_min_idx]
+    
+                    if distance_min < smallest_distance:
+                        smallest_distance = distance_min
+                        streamline_to_cut = starting_streamline
+                        idx_to_cut = distance_min_idx
+                        sing_to_merge = key
                 
-            else:
-                print('  ⚠ Post-processing failed, using original streamlines')
-        except Exception as e:
-            print(f'  ❌ Error during post-processing: {e}')
-            print('  Using original streamlines')
+                if 'streamline_to_cut' in locals() and Streamlines[streamline_to_cut]["ending_singularity"] != sing_to_merge:
+                    streamline_coords = Streamlines[streamline_to_cut]["coords"]
+                    sing_coords = Singularity[sing_to_merge]["coords"]
+                    if sing_coords.ndim == 1:
+                        sing_coords = sing_coords.reshape(1, -1)
+                    cutted_streamline = streamline_coords[0:idx_to_cut, :]
+                    new_streamline = np.vstack([cutted_streamline, sing_coords])
+    
+                    Streamlines[streamline_to_cut]["coords"] = new_streamline
+                    Streamlines[streamline_to_cut]["ending_singularity"] = sing_to_merge
+                    print('Streamline cutted in function cut_streamlines')
+                    
+        return Singularity,Streamlines
+    
+    
+    def pre_processing(self, streamlines):
+
+        print("\n function pre_processing \n")
+        tol = 10e-3
+        tol_big= 25e-3
+        Singularity = {}
+        Streamlines = {}
+    
+        mask_c0_nodes = self.mesh.x[:, 2] == 0
+        c0_nodes = self.mesh.x[mask_c0_nodes, 0:2]
+        singularity_coords=[self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords] 
+        streamline_termination_nodes = np.array(singularity_coords+ list(c0_nodes))
+    
+        for j in range(streamline_termination_nodes.shape[0]):
+            Singularity[j] = {"ending_streamlines": [], "starting_streamlines": [], "coords": streamline_termination_nodes[j], "is_boundary": j >= len(singularity_coords)}
+    
+        for i in range(len(streamlines)):
+            Streamlines[i] = {"ending_singularity": None, "starting_singularity": None, "coords": streamlines[i],"starts_at_boundary": False, "ends_at_boundary":False}
+  
+        for i in range(len(streamlines)):
+            streamline = streamlines[i]
+            start = streamline[0]
+            end = streamline[-1]
+           
+            for j in range(streamline_termination_nodes.shape[0]):
+                termination_node = streamline_termination_nodes[j]
+                distance_start = np.linalg.norm(start - termination_node)
+                distance_end = np.linalg.norm(end - termination_node)
+                
+                if distance_start < tol:
+                    Singularity[j]["starting_streamlines"].append(i)
+   
+                    Streamlines[i]["starting_singularity"] = j
+                    Streamlines[i]["starts_at_boundary"] = Singularity[j]["is_boundary"]
+                elif distance_end < tol:
+                    Singularity[j]["ending_streamlines"].append(i)
+   
+                    Streamlines[i]["ending_singularity"] = j
+                    Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
+                else:
+
+                    distance = np.linalg.norm(streamline - termination_node, axis=1)
+                    distance_min_idx = np.argmin(distance)
+                    distance_min = distance[distance_min_idx]
+    
+                    if distance_min < tol:
+                        
+                        cutted_streamline = streamline[0:distance_min_idx, :]
+                        if termination_node.ndim == 1:
+                            termination_node =  termination_node.reshape(1, -1)
+
+                        new_streamline = np.array(np.vstack([cutted_streamline, termination_node]))
+                        print(f"type of new streamlines {type(new_streamline)}{new_streamline.shape}")
+                        Streamlines[i]["coords"]=np.array(new_streamline)
+                        Streamlines[i]["ending_singularity"] = j
+                        Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
+                        print('Streamline cutted in function pre_processing')
+
+        return Singularity, Streamlines    
+
+    def merge_streamlines(self,Singularity,Streamlines):
+
+        print("\n function merge_streamlines \n")
+        merged_pairs = set()
+        
+        for key_i in Streamlines.keys():
+            if key_i in merged_pairs:
+                continue
+
+            if not Streamlines[key_i]["starts_at_boundary"] and not Streamlines[key_i]["ends_at_boundary"]:
+                singularity_start_i = Streamlines[key_i]["starting_singularity"]
+                singularity_end_i = Streamlines[key_i]["ending_singularity"]
+    
+                if singularity_start_i is None or singularity_end_i is None:
+                    continue
+                    
+                for key_j in Streamlines.keys():
+    
+                    if not Streamlines[key_j]["starts_at_boundary"] and not Streamlines[key_j]["ends_at_boundary"]:
+                        if key_i == key_j or key_j in merged_pairs:
+                            continue
+                    
+                        singularity_start_j = Streamlines[key_j]["starting_singularity"]
+                        singularity_end_j = Streamlines[key_j]["ending_singularity"]
+                        
+                        if singularity_start_j is None or singularity_end_j is None:
+                            continue
+                        
+                        # Check if streamlines can be merged (end-to-start or start-to-end)
+                        if (singularity_end_i == singularity_start_j and 
+                            singularity_start_i == singularity_end_j):
+                            
+                            streamline_ij = Streamlines[key_i]["coords"]
+                            streamline_ji = Streamlines[key_j]["coords"]
+                            
+                            if streamline_ij is None or streamline_ji is None:
+                                continue
+                            
+                            # Determine correct order and orientation
+                            if singularity_end_i == singularity_start_j:
+                                # i->j: keep order, may need to flip j
+                                merged = self.interpolate_streamlines(streamline_ij, streamline_ji)
+                                new_start = singularity_start_i
+                                new_end = singularity_end_j
+                            else:
+                                # j->i: flip order, may need to flip i
+                                merged = self.interpolate_streamlines(streamline_ji, streamline_ij)
+                                new_start = singularity_start_j
+                                new_end = singularity_end_i
+                            
+                            # Update the first streamline with merged result
+                            Streamlines[key_i]["coords"] = merged
+                            Streamlines[key_i]["starting_singularity"] = new_start
+                            Streamlines[key_i]["ending_singularity"] = new_end
+                            
+                            # Mark second streamline for removal
+                            merged_pairs.add(key_j)
+                            
+                            # Update singularity references
+                            if new_start is not None:
+                                if key_j in Singularity[new_start]["starting_streamlines"]:
+                                    Singularity[new_start]["starting_streamlines"].remove(key_j)
+                                if key_i not in Singularity[new_start]["starting_streamlines"]:
+                                    Singularity[new_start]["starting_streamlines"].append(key_i)
+                            
+                            if new_end is not None:
+                                if key_j in Singularity[new_end]["ending_streamlines"]:
+                                    Singularity[new_end]["ending_streamlines"].remove(key_j)
+                                if key_i not in Singularity[new_end]["ending_streamlines"]:
+                                    Singularity[new_end]["ending_streamlines"].append(key_i)
+                            
+                                break
+                
+        # Remove merged streamlines
+        for key in merged_pairs:
+            del Streamlines[key]
+        print( len(merged_pairs)) 
+
+        merged_streamlines = []
+        for key in Streamlines.keys():
+            if Streamlines[key]["coords"] is not None:
+                merged_streamlines.append(np.array(Streamlines[key]["coords"]))
+            else: print('streamline has no coodrinates')
+    
+        return merged_streamlines
+
 
     def interpolate_streamlines(self, streamline_ij, streamline_ji, num_points=100):
         # Convert streamlines to splines

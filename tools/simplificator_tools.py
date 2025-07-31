@@ -8,53 +8,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 # Generate a new mesh
 
-
-def get_new_mesh():
-    is_valid = False
-
-    while is_valid == False:
-        block_mesh = mp.Pool(1).apply_async(get_mesh).get(timeout=300)
-
-        if block_mesh is not None:
-            is_valid = True
-
-    file = f"./figures/streamlines/quad_mesh_new.png"
-    plot_final_mesh(block_mesh, output_file=file)
-
-    file_streamlines = f"./figures/streamlines/streamlines_new_mesh.png"
-    plot_streamlines(block_mesh, output_file=file_streamlines)
-
-    return block_mesh
-
-
-def load_mesh():
-    extension = 'post_processing'
-    path = f'./saved_meshes/checkpoints_test/mesh_{extension}.pt'
-
-    block_mesh = torch.load(path)
-    return block_mesh
-
-def cut_streamlines(Singularities, Streamlines):
+def cut_streamlines(Streamlines,Singularities):
 
 
     for key in Streamlines.keys():
     
         singularity_end = Streamlines[key]["s_in"]
     
-        end_sing_coords = Streamlines[key]["coords"]
         if singularity_end is not None:
             print(singularity_end)
             singularity_start = Streamlines[key]["s_out"]
             streamlines_staring =Singularities[singularity_end]["s_out"]
-            start_sing_coords =Singularities[singularity_end]["coords"]
             best_angle = np.inf
     
             angle_in = Streamlines[key]["angle_in"]
-            dx = start_sing_coords[0]-end_sing_coords[0]
-            dy = start_sing_coords[1]-end_sing_coords[1]
-
-            ## Use angle between interpolated line cuase streamline may have an cutted corner
-            angle_in = np.arctan2(dy, dx)            best_streamline= None
+            best_streamline= None
             for streamline in streamlines_staring:
                     angle_out= Streamlines[streamline]["angle_out"]
                     angle_diff =np.absolute(angle_out-angle_in) 
@@ -68,11 +36,25 @@ def cut_streamlines(Singularities, Streamlines):
                 print(f'merge streamline {best_streamline} with sing {singularity_start}')
         
     for key in Streamlines.keys():
-        if Streamlines[key]["cut_at_sing"] is not None:
-
-        
+        id = Streamlines[key]["cut_at_sing"]
+        if id is not None:
             sing_coord =  Singularity[id]['coords']
+            if sing_coord is not None:
+                streamline_coords = Streamlines[key]["coords"]
+                distance = np.linalg.norm(streamline_coords - sing_coord axis=1)
+                distance_min_idx = np.argmin(distance)
+                distance_min = distance[distance_min_idx]
+                cutted_streamline = streamline[:distance_min_idx, :]
+                new_streamline = np.vstack([cutted_streamline, termination_node])
+                Streamlines[key]["coords"]= new_streamline
+                Streamlines[key]["s_in"]=id 
+    
 
+    cutted_streamlines = []
+
+    for key in Streamlines.keys():
+        cutted_streamlines.append(Streamlines[key]["coords"])
+    return cutted_streamlines
 
 def streamline_post_processing(mesh):
 

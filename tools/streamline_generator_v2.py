@@ -20,8 +20,9 @@ class StreamlineGenerator_v2:
         
         mask_c0_nodes = mesh.x[:, 2] == 0
         c0_nodes = mesh.x[mask_c0_nodes, 0:2]
-        print(c0_nodes)
-        self.streamline_termination_nodes = torch.tensor([self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords]+list(c0_nodes))
+        singularity_coords=torch.tensor([mesh.singularities_coords[sing] for sing in mesh.singularities_coords] )
+        
+        self.streamline_termination_nodes = torch.cat((singularity_coords,c0_nodes),0)
       
         for i in range(len(mesh.separatrices)):
            
@@ -95,7 +96,6 @@ class StreamlineGenerator_v2:
     def check_termination_criteria(self, point, face_idx, origin):
         
         if face_idx == None:
-            print("Current point is outside the mesh.")
             return True, point
        
         distances = torch.linalg.norm(self.streamline_termination_nodes - point, dim=1)
@@ -124,7 +124,6 @@ class StreamlineGenerator_v2:
             # Evaluate the vector field at the current point
             v_current,mesh = self.get_best_cross_vector(current_point, current_direction, mesh, current_face_idx)
             if v_current is None:
-                print("Current point is outside the mesh.")
                 print(f"Current point: {current_point} of face {current_face_idx}")
                 break
             v_current = v_current / torch.norm(v_current)  # Ensure unit vector

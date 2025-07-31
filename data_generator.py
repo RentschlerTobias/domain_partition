@@ -1,5 +1,6 @@
 
-from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator
+from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator,StreamlineGenerator_v2
+from tools import StreamlineSimplificator_v2
 from tools import StreamlineSimplificator
 from tools import Transfinite_Interpolation
 from tools import MeshCheck
@@ -11,6 +12,91 @@ import torch
 import os
 import multiprocessing as mp
 import time
+
+def get_mesh():
+    np.random.seed(int(time.time() * 1000) % 2**32 + os.getpid())
+    
+    try:
+        print('started function NACA_airfoil()')
+        airfoil                     = NACA_airfoil()
+        random_lc                   =  0.04+ 0.02*np.random.rand()
+        print('called function MeshGenerator')
+        mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
+
+        print('called function FrameField')
+        frameField                  = FrameField(mesh_gen.mesh)
+
+        print('called function StreamlineGenerator')
+        streamline                  = StreamlineGenerator(frameField.mesh)
+
+        print('called function StreamlineSimplificator')
+        streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
+
+        print('called function streamlines_post_processed')
+        blocked_mesh                = streamlines_post_processed.quad_mesh
+
+        print('called function Transfinite_Interpolation')
+        transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
+
+        quad_mesh                   = transfiniteInterpolation.quad_mesh
+        tri_mesh                    = streamline.mesh 
+        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.001)
+        success                     = mesh_check.is_valid
+        print(f'!!! \n area difference: \n {mesh_check.quad_area-mesh_check.tri_area}\n !!!')
+        if success == True:
+            mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh) 
+            print('succssess')
+            return mesh
+        else:
+            print('failed')
+            return None
+    except Exception as e:
+        print(f'\n domain partition failed: {e} \n')
+ 
+def main():
+
+    number_of_meshes =100
+    checkpoint_interval = 1  # Speichere alle x erfolgreiche Meshes
+    checkpoint_dir = "./saved_meshes/checkpoints"
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    database = []
+    successful_meshes = 0  
+    failed_meshes = 0  
+    counter = 0
+    for n in range(number_of_meshes):
+        is_valid = False
+        
+        while is_valid == False:
+            mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=300)
+            counter += 1             
+            print(f"\n \n \n counter: {counter} \n \n \n")               
+            if mesh_data is not None:
+                is_valid = True    
+                database.append(mesh_data)
+                successful_meshes += 1
+                print(f"successful meshes: {successful_meshes}")
+                
+                # if n+1 % checkpoint_interval == 0:
+                if is_valid:
+                    try:
+                        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
+                        torch.save(database, checkpoint_path)
+                        database = [] #resett database
+                        print(f"Checkpoint gespeichert: {checkpoint_path}")
+                    except Exception as checkpoint_error:
+                        print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
+            else:
+                failed_meshes += 1
+                print(f"Warning: Transifinite Mesh is not valid")
+
+    print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes }') 
+
+    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
+    torch.save(database, checkpoint_path)
+    print(f"Final Checkpoint reached")
+
 def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
 
     # Extract features of the triangulated mesh incl. frame_field & streamline generation
@@ -44,87 +130,12 @@ def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
     return final_mesh
 
 
-def get_mesh():
-    np.random.seed(int(time.time() * 1000) % 2**32 + os.getpid())
-    
-    try:
-        print('started function NACA_airfoil()')
-        airfoil                     = NACA_airfoil()
-        random_lc                   =  0.04+ 0.02*np.random.rand()
-        print('called function MeshGenerator')
-        mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
 
-        print('called function FrameField')
-        frameField                  = FrameField(mesh_gen.mesh)
 
-        print('called function StreamlineGenerator')
-        streamline                  = StreamlineGenerator(frameField.mesh)
 
-        print('called function StreamlineSimplificator')
-        streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
 
-        print('called function streamlines_post_processed')
-        blocked_mesh                = streamlines_post_processed.quad_mesh
 
-        print('called function Transfinite_Interpolation')
-        transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
 
-        quad_mesh                   = transfiniteInterpolation.quad_mesh
-        tri_mesh                    = streamline.mesh 
-        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.01)
-        success                     = mesh_check.is_valid
-        print(f'!!! \n area difference: \n {mesh_check.quad_area-mesh_check.tri_area}\n !!!')
-        if success == True:
-            mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh) 
-            print('succssess')
-            return mesh
-        else:
-            print('failed')
-            return None
-    except Exception as e:
-        print(f'\n domain partition failed: {e} \n')
- 
-def main():
-
-    number_of_meshes =100
-    checkpoint_interval = 10  # Speichere alle x erfolgreiche Meshes
-    checkpoint_dir = "./saved_meshes/checkpoints"
-
-    os.makedirs(checkpoint_dir, exist_ok=True)
-
-    database = []
-    successful_meshes = 0  
-    failed_meshes = 0  
-
-    for n in range(number_of_meshes):
-        is_valid = False
-        
-        while is_valid == False:
-            mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=600)
-                           
-            if mesh_data is not None:
-                is_valid = True    
-                database.append(mesh_data)
-                successful_meshes += 1
-                print(f"successful meshes: {successful_meshes}")
-                
-                if n+1 % checkpoint_interval == 0:
-                    try:
-                        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
-                        torch.save(database, checkpoint_path)
-                        database = [] #resett database
-                        print(f"Checkpoint gespeichert: {checkpoint_path}")
-                    except Exception as checkpoint_error:
-                        print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
-            else:
-                failed_meshes += 1
-                print(f"Warning: Transifinite Mesh is not valid")
-
-    print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes }') 
-
-    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
-    torch.save(database, checkpoint_path)
-    print(f"Final Checkpoint reached")
 
 if __name__ == "__main__":                                                                         
     main()

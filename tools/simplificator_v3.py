@@ -1,4 +1,3 @@
-from networkx.algorithms import distance_measures
 from scipy.interpolate import splprep, splev
 import numpy as np
 from collections import defaultdict
@@ -8,32 +7,33 @@ from sklearn.cluster import DBSCAN
 from torch._prims_common import dtype_to_type
 from torch_geometric.data import Data
 
+from .streamline_post_processor import StreamlinePostProcessor
 
-class StreamlineSimplificator_v2:
+class StreamlineSimplificator:
     def __init__(self, mesh):
 
         self.mesh = mesh
         Singularity, Streamlines    = self.pre_processing(mesh.streamlines)
         self.mesh.streamlines       = self.cut_streamlines(Singularity, Streamlines)
-        self.streamline_splines     = self.get_streamlines_as_splines()
+
+        self.streamline_splines             = self.get_streamlines_as_splines()
 
         print('search for intersections')
         self.intersection_data, self.intersections    = self.find_all_intersections()
 
-        self.intersection_data = self.get_intersections()
+        # self.intersection_data = self.get_intersections()
         self.mesh.streamline_intersections  = self.intersection_data
         self.mesh.streamline_intersections_points  = self.intersections
 
         self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
-
+        self.apply_streamline_post_processing()
         self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
-        print('get quad mesh')
         self.quad_mesh                      = self.get_mesh()
         self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
         #
         #
         self.add_graph_attr()
-   
+
     def cut_streamlines(self, Singularity, Streamlines):
         for key in Singularity.keys():
             streamlines_ending = Singularity[key]["ending_streamlines"]
@@ -75,12 +75,14 @@ class StreamlineSimplificator_v2:
                 if 'streamline_to_cut' in locals() and Streamlines[streamline_to_cut]["ending_singularity"] != sing_to_merge:
                     streamline_coords = Streamlines[streamline_to_cut]["coords"]
                     sing_coords = Singularity[sing_to_merge]["coords"]
-                    cutted_streamline = streamline_coords[:idx_to_cut + 1, :]
+                    if sing_coords.ndim == 1:
+                        sing_coords = sing_coords.reshape(1, -1)
+                    cutted_streamline = streamline_coords[0:idx_to_cut, :]
                     new_streamline = np.vstack([cutted_streamline, sing_coords])
     
                     Streamlines[streamline_to_cut]["coords"] = new_streamline
                     Streamlines[streamline_to_cut]["ending_singularity"] = sing_to_merge
-                    print('Streamline cutted')
+                    print('Streamline cutted in function cut_streamlines')
     
         new_streamlines = []
         for key in Streamlines.keys():
@@ -93,8 +95,8 @@ class StreamlineSimplificator_v2:
     
     
     def pre_processing(self, streamlines):
-        tol = 10e-3
-        
+        tol = 25e-3
+        tol_big= 25e-3
         Singularity = {}
         Streamlines = {}
     
@@ -123,11 +125,63 @@ class StreamlineSimplificator_v2:
    
                     Streamlines[i]["starting_singularity"] = j
     
-                if distance_end < tol:
+                elif distance_end < tol:
                     Singularity[j]["ending_streamlines"].append(i)
    
                     Streamlines[i]["ending_singularity"] = j
+                else:
+
+                    distance = np.linalg.norm(streamline - termination_node, axis=1)
+                    distance_min_idx = np.argmin(distance)
+                    distance_min = distance[distance_min_idx]
+    
+                    if distance_min < tol:
+                        
+                        cutted_streamline = streamline[0:distance_min_idx, :]
+                        if termination_node.ndim == 1:
+                            termination_node =  termination_node.reshape(1, -1)
+
+                        new_streamline = np.array(np.vstack([cutted_streamline, termination_node]))
+                        print(f"type of new streamlines {type(new_streamline)}{new_streamline.shape}")
+                        Streamlines[i]["coords"]=np.array(new_streamline)
+                        Streamlines[i]["ending_singularity"] = j
+ 
+                        print('Streamline cutted in function pre_processing')
+
         return Singularity, Streamlines    
+
+
+    def apply_streamline_post_processing(self):
+        """
+        Apply streamline post-processing to handle problematic cases
+        This modifies self.mesh.streamlines and regenerates dependent data
+        """
+        try:
+            # Create post-processor and get corrected streamlines
+            post_processor = StreamlinePostProcessor(self)
+            corrected_streamlines = post_processor.run_post_processing()
+            
+            if corrected_streamlines is not None:
+                print('  ✓ Post-processing successful')
+                # Update streamlines with post-processed ones
+                self.mesh.streamlines = corrected_streamlines
+                
+                # Regenerate dependent data with new streamlines
+                print('  Regenerating splines and intersections...')
+                self.streamline_splines = self.get_streamlines_as_splines()
+                self.intersection_data, self.intersections = self.find_all_intersections()
+                self.mesh.streamline_intersections = self.intersection_data
+                self.mesh.streamline_intersections_points = self.intersections
+                
+                # Regenerate quad data
+                self.quad_edges = self.split_splines_at_intersections(self.intersection_data)
+                self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
+                
+            else:
+                print('  ⚠ Post-processing failed, using original streamlines')
+        except Exception as e:
+            print(f'  ❌ Error during post-processing: {e}')
+            print('  Using original streamlines')
 
     def interpolate_streamlines(self, streamline_ij, streamline_ji, num_points=100):
         # Convert streamlines to splines
@@ -295,7 +349,6 @@ class StreamlineSimplificator_v2:
 
         if streamlines == None:
             streamlines = self.mesh.streamlines
-        
         for i in range(len(streamlines)):
             streamline = np.array(streamlines[i])
             x = streamline[:, 0]

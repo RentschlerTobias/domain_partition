@@ -1,16 +1,14 @@
 from tools import streamline_simplificator
 
 
-def plot_post_processed_streamline(streamlines,output_file="./figures/streamlines_post_processed.png"):
+def plot_post_processed_streamline(streamlines,output_file="./figures/streamlines/streamlines_post_processed.png"):
     import matplotlib.pyplot as plt
     import numpy as np
 
 
     for streamline in streamlines:
         color =np.random.rand(3) 
-        streamline = np.array(streamline.nodes)  # Convert to numpy array for easier plotting
-        start = streamline[0,:]
-        end = streamline[-1,:]
+        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
         plt.plot(streamline[:, 0], streamline[:, 1], color=color)
    
     plt.axis('off')
@@ -112,8 +110,9 @@ def plot_streamlines(mesh, output_file="./figures/streamlines.png", colored=Fals
     plt.figure(figsize=(5, 5))
 
     # color = 'r'
-    color =np.random.rand(3) 
     for streamline in streamlines:
+
+        color =np.random.rand(3) 
         streamline = np.array(streamline)  # Convert to numpy array for easier plotting
         start = streamline[0,:]
         end = streamline[-1,:]

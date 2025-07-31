@@ -1,25 +1,50 @@
+
+from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator,StreamlineGenerator_v2
+from tools import Transfinite_Interpolation
+from tools import MeshCheck
 from tools.plotting_tools import *
 from torch_geometric.data import Data
 import numpy as np
 import torch
 import os
-import multiprocessing as mp
+from data_generator import get_mesh,extract_mesh_data
+import matplotlib.pyplot as plt
+
+from test_v2 import StreamlineSimplificator as StreamlineSimplificator_v2
+from tools import StreamlineSimplificator
+#
+# meshes = torch.load('./saved_meshes/checkpoints/checkpoint_mesh_2.pt')
+# mesh = meshes[h]
+#
+plt.close
+
+airfoil                     = NACA_airfoil()
+random_lc                   =  0.04+ 0.02*np.random.rand()
+mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
+frameField                  = FrameField(mesh_gen.mesh)
+streamline                  = StreamlineGenerator_v2(frameField.mesh)
+plot_streamlines(streamline.mesh,output_file="./figures/streamlines/streamlines.png")
+
+mesh = streamline.mesh
+len(mesh.streamlines)
+
+mesh = frameField.mesh
 
 
-from test_v2 import load_mesh
-from test_v2 import streamline_post_processing 
 
-block_mesh= load_mesh()
-new_streamlines = streamline_post_processing(block_mesh)
-plot_post_processed_streamline(new_streamlines)
+streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
+blocked_mesh                = streamlines_post_processed.quad_mesh
+transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
+quad_mesh                   = transfiniteInterpolation.quad_mesh
+tri_mesh                    = streamlines_post_processed.mesh 
+mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.01)
+success                     = mesh_check.is_valid
+print(f'!!! \n area difference: \n {mesh_check.quad_area-mesh_check.tri_area}\n !!!')
 
-new_streamlines[-1].nodes
+mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh) 
 
-new_streamlines[-1].singularity_out
-new_streamlines[-1].singularity_in
+plot_faces(blocked_mesh,colored=True,output_file="./figures/streamlines/faces_colored.png")
+plot_intersections(streamlines_post_processed.mesh,output_file="./figures/streamlines/intersections.png")
+plot_streamlines(mesh,output_file="./figures/streamlines/streamlines_post_processed.png")
+plot_final_mesh(mesh,output_file="./figures/streamlines/quad_mesh.png")               
 
-for streamline in block_mesh.streamlines:
-    print(streamline.shape[1])
-
-for streamline in new_streamlines:
-    print(streamline.nodes.shape)
