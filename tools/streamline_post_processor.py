@@ -54,6 +54,7 @@ class StreamlinePostProcessor:
 
                     Streamlines[i]["s_out"] = j
                     Streamlines[i]["angle_out"] = torch.atan2(dy, dx)
+                    Streamlines[i]["starts_at_boundary"] = Singularities[j]["is_boundary"]
                 elif distance_end < tol:
 
                     dx = streamline[-2, 0] - streamline[-1, 0]
@@ -64,4 +65,28 @@ class StreamlinePostProcessor:
                     Streamlines[i]["s_in"] = j
                     Streamlines[i]["angle_in"] = torch.atan2(dy, dx)
 
+                    Streamlines[i]["ends_at_boundary"] = Singularities[j]["is_boundary"]
+
             return Singularities, Streamlines
+
+    def get_matching_streamlines(self):
+
+        for key in self.Singularities.keys():
+
+            # singularity_out = self.Streamlines[key]["s_out"]
+            streamlines_in = self.Singularities[key]["s_in"]
+
+            if len(streamlines_in) > 0:
+
+                best_angle = torch.inf
+                coords_sing_in = self.Singularities[key]["coords"]
+                for streamline_in in streamlines_in:
+
+                    id_singularity              = self.Streamlines[streamline_in]["s_out"]
+                    coords_sing_out             = self.Singularities[id_singularity]["coords"]
+                    dx      = coords_sing_in[0] - coords_sing_out[0]
+                    dy      = coords_sing_in[1] - coords_sing_out[1]
+
+                    angel   = torch.atan2(dy, dx)
+
+                    print(streamline_in)

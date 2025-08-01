@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import os
 import matplotlib.pyplot as plt
-extract_mesh_data
+from data_generator import extract_mesh_data
 
 
 #
@@ -23,12 +23,6 @@ random_lc                   = 0.04 + 0.02 * np.random.rand()
 mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
 frameField                  = FrameField(mesh_gen.mesh)
 streamline                  = StreamlineGenerator_v2(frameField.mesh)
-
-
-PostProcessor = StreamlinePostProcessor(streamline.mesh)
-
-plot_streamlines(streamline.mesh, output_file="./figures/streamlines/streamlines.png")
-
 
 streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
 blocked_mesh                = streamlines_post_processed.quad_mesh
@@ -45,3 +39,26 @@ plot_faces(blocked_mesh, colored=True, output_file="./figures/streamlines/faces_
 plot_intersections(mesh, output_file="./figures/streamlines/intersections.png")
 plot_streamlines(mesh, output_file="./figures/streamlines/streamlines_post_processed.png")
 plot_final_mesh(mesh, output_file="./figures/streamlines/quad_mesh.png")
+
+
+torch.inf
+PostProcessor = StreamlinePostProcessor(streamline.mesh)
+PostProcessor.get_matching_streamlines()
+
+
+Streamlines = PostProcessor.Streamlines
+Singularities = PostProcessor.Singularities
+
+for key in Singularities.keys():
+    streamlines_in = Singularities[key]["s_in"]
+    print(len(streamlines_in))
+
+
+for key in Singularities.keys():
+    streamlines_in = Singularities[key]["s_in"]
+    if len(streamlines_in) > 0:
+        for streamline_in in streamlines_in:
+            print(streamline_in)
+
+
+plot_streamlines(streamline.mesh, output_file="./figures/streamlines/streamlines.png")

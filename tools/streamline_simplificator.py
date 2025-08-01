@@ -58,12 +58,12 @@ class StreamlineSimplificator:
                     if starting_streamline not in Streamlines:
                         continue
 
-                    coords = Streamlines[starting_streamline]["coords"]
+                    coords = torch.from_numpy(Streamlines[starting_streamline]["coords"])
                     if coords is None or len(coords) == 0:
                         continue
 
-                    distance = np.linalg.norm(coords - singularity_coords, axis=1)
-                    distance_min_idx = np.argmin(distance)
+                    distance = torch.linalg.norm(coords - singularity_coords, axis=1)
+                    distance_min_idx = torch.argmin(distance)
                     distance_min = distance[distance_min_idx]
 
                     if distance_min < smallest_distance:
@@ -73,12 +73,10 @@ class StreamlineSimplificator:
                         sing_to_merge = key
 
                 if 'streamline_to_cut' in locals() and Streamlines[streamline_to_cut]["ending_singularity"] != sing_to_merge:
-                    streamline_coords = Streamlines[streamline_to_cut]["coords"]
-                    sing_coords = Singularity[sing_to_merge]["coords"]
-                    if sing_coords.ndim == 1:
-                        sing_coords = sing_coords.reshape(1, -1)
+                    streamline_coords = torch.from_numpy(Streamlines[streamline_to_cut]["coords"])
+                    sing_coords = torch.from_numpy(Singularity[sing_to_merge]["coords"])
                     cutted_streamline = streamline_coords[0:idx_to_cut, :]
-                    new_streamline = np.vstack([cutted_streamline, sing_coords])
+                    new_streamline = np.array(torch.cat((cutted_streamline, sing_coords), 0))
 
                     Streamlines[streamline_to_cut]["coords"] = new_streamline
                     Streamlines[streamline_to_cut]["ending_singularity"] = sing_to_merge
@@ -96,24 +94,25 @@ class StreamlineSimplificator:
 
         mask_c0_nodes = self.mesh.x[:, 2] == 0
         c0_nodes = self.mesh.x[mask_c0_nodes, 0:2]
-        singularity_coords = [self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords]
-        streamline_termination_nodes = np.array(singularity_coords + list(c0_nodes))
+        singularity_coords  = torch.tensor([self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords])
 
-        for j in range(streamline_termination_nodes.shape[0]):
+        streamline_termination_nodes = torch.cat((c0_nodes, singularity_coords), 0)
+
+        for j in range(streamline_termination_nodes.size(0)):
             Singularity[j] = {"ending_streamlines": [], "starting_streamlines": [], "coords": streamline_termination_nodes[j], "is_boundary": j >= len(singularity_coords)}
 
         for i in range(len(streamlines)):
             Streamlines[i] = {"ending_singularity": None, "starting_singularity": None, "coords": streamlines[i], "starts_at_boundary": False, "ends_at_boundary": False}
 
         for i in range(len(streamlines)):
-            streamline = streamlines[i]
+            streamline = torch.from_numpy(streamlines[i])
             start = streamline[0]
             end = streamline[-1]
 
-            for j in range(streamline_termination_nodes.shape[0]):
+            for j in range(streamline_termination_nodes.size(0)):
                 termination_node = streamline_termination_nodes[j]
-                distance_start = np.linalg.norm(start - termination_node)
-                distance_end = np.linalg.norm(end - termination_node)
+                distance_start = torch.linalg.norm(start - termination_node)
+                distance_end = torch.linalg.norm(end - termination_node)
 
                 if distance_start < tol:
                     Singularity[j]["starting_streamlines"].append(i)
@@ -127,17 +126,15 @@ class StreamlineSimplificator:
                     Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
                 else:
 
-                    distance = np.linalg.norm(streamline - termination_node, axis=1)
-                    distance_min_idx = np.argmin(distance)
+                    distance = torch.linalg.norm(streamline - termination_node, axis=1)
+                    distance_min_idx = torch.argmin(distance)
                     distance_min = distance[distance_min_idx]
 
                     if distance_min < tol:
 
                         cutted_streamline = streamline[0:distance_min_idx, :]
-                        if termination_node.ndim == 1:
-                            termination_node = termination_node.reshape(1, -1)
 
-                        new_streamline = np.array(np.vstack([cutted_streamline, termination_node]))
+                        new_streamline = torch.cat((cutted_streamline, termination_node), 0)
                         print(f"type of new streamlines {type(new_streamline)}{new_streamline.shape}")
                         Streamlines[i]["coords"] = np.array(new_streamline)
                         Streamlines[i]["ending_singularity"] = j
