@@ -1,5 +1,78 @@
 from tools import streamline_simplificator
 
+def plot_streamline_dicc(Streamlines):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+
+    for key in Streamlines.keys():
+        streamline= Streamlines[key]["coords"]
+        figsize = (5, 5)
+        plt.figure(figsize=figsize)
+        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
+        color = np.random.rand(3,)  # Random RGB color for each face
+
+        plt.plot(streamline[:, 0], streamline[:, 1], color=color)
+        plt.xlim = [0,1]
+        plt.ylim = [0,1]  
+        output_file=f"./figures/faces/streamline_{i}.png"
+        plt.savefig(output_file, dpi=300, transparent=True)
+        plt.close()
+
+
+
+
+def plot_streamlines_independet(mesh):
+
+    
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    streamlines = mesh.streamlines 
+    num_sl = len(streamlines)
+    for i in range(num_sl):
+        figsize = (5, 5)
+        plt.figure(figsize=figsize)
+        coords= mesh.streamlines[i]
+        color = np.random.rand(3,)  # Random RGB color for each face
+        plt.fill(coords[:, 0], coords[:, 1], color=color, edgecolor='gray', linewidth=0.5)
+             
+        output_file=f"./figures/streamlines/streamline_{i}.png"
+        plt.xlim = [0,1]
+        plt.ylim = [0,1]
+        plt.axis('equal')  # Equal aspect ratio
+        plt.tight_layout()
+        plt.savefig(output_file, dpi=300, transparent=True)
+        plt.close()
+
+
+
+def plot_faces_independet(mesh):
+
+    
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    faces = mesh.quad_faces
+    nodes = mesh.quad_coordinates
+    
+    num_faces = faces.size(1)
+    for i in range(num_faces):
+        figsize = (5, 5)
+        plt.figure(figsize=figsize)
+
+        face = faces[:,i].T
+        coords = nodes[face]  # shape (4, 2)
+        color = np.random.rand(3,)  # Random RGB color for each face
+        plt.fill(coords[:, 0], coords[:, 1], color=color, edgecolor='gray', linewidth=0.5)
+             
+        output_file=f"./figures/faces/face_{i}.png"
+        plt.xlim = [0,1]
+        plt.ylim = [0,1]
+        plt.axis('equal')  # Equal aspect ratio
+        plt.tight_layout()
+        plt.savefig(output_file, dpi=300, transparent=True)
+        plt.close()
 
 def plot_post_processed_streamline(streamlines,output_file="./figures/streamlines/streamlines_post_processed.png"):
     import matplotlib.pyplot as plt

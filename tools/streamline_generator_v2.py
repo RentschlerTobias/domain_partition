@@ -112,8 +112,10 @@ class StreamlineGenerator_v2:
                
         return False, None
 
-    def runge_kutta_heun_integrate_streamline(self,start_point, start_direction, mesh, streamline, step_size=0.0025):
-        
+    def runge_kutta_heun_integrate_streamline(self,start_point, start_direction, mesh, streamline, step_size=None):
+       
+        if step_size == None:
+            step_size = self.termination_node_range/3
         current_point = start_point.clone().detach()
         current_direction = start_direction / torch.norm(start_direction)  # Ensure unit vector
         current_face_idx = self.find_containing_face(current_point, mesh)

@@ -13,26 +13,26 @@ class StreamlineSimplificator:
 
         self.mesh = mesh
         Singularity, Streamlines    = self.pre_processing(mesh.streamlines)
-        Singularity, Streamlines     = self.cut_streamlines(Singularity, Streamlines)
-        self.mesh.streamlines       = self.merge_streamlines(Singularity, Streamlines)
-
-        self.streamline_splines        = self.get_streamlines_as_splines()
-
-        print('search for intersections')
-        self.intersection_data, self.intersections    = self.find_all_intersections()
-
-        # self.intersection_data = self.get_intersections()
-        self.mesh.streamline_intersections  = self.intersection_data
-        self.mesh.streamline_intersections_points  = self.intersections
-
-        self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
-        self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
-        self.quad_mesh                      = self.get_mesh()
-        self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
+        self.Singularity, self.Streamlines     = self.cut_streamlines(Singularity, Streamlines)
+        self.mesh.streamlines       = self.merge_streamlines(self.Singularity, self.Streamlines)
+        # #
+        # self.streamline_splines        = self.get_streamlines_as_splines()
+        # # 
+        # # print('search for intersections')
+        # self.intersection_data, self.intersections    = self.find_all_intersections()
         #
+        # # self.intersection_data = self.get_intersections()
+        # self.mesh.streamline_intersections  = self.intersection_data
+        # self.mesh.streamline_intersections_points  = self.intersections
         #
-        self.add_graph_attr()
-
+        # self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
+        # self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
+        # self.quad_mesh                      = self.get_mesh()
+        # self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
+        # #
+        # #
+        # self.add_graph_attr()
+        # #     #
     def cut_streamlines(self, Singularity, Streamlines):
         print("\n function cut_streamlines \n")
         for key in Singularity.keys():
@@ -76,9 +76,10 @@ class StreamlineSimplificator:
                     streamline_coords = torch.from_numpy(Streamlines[streamline_to_cut]["coords"])
                     sing_coords = torch.from_numpy(Singularity[sing_to_merge]["coords"])
                     cutted_streamline = streamline_coords[0:idx_to_cut, :]
-                    new_streamline = np.array(torch.cat((cutted_streamline, sing_coords), 0))
+                    # new_streamline = np.array(torch.cat((cutted_streamline, sing_coords), 0))
 
-                    Streamlines[streamline_to_cut]["coords"] = new_streamline
+                    # Streamlines[streamline_to_cut]["coords"] = new_streamline
+                    Streamlines[cutted_streamline]["coords"] = new_streamline
                     Streamlines[streamline_to_cut]["ending_singularity"] = sing_to_merge
                     print('Streamline cutted in function cut_streamlines')
 
@@ -110,7 +111,7 @@ class StreamlineSimplificator:
             end = streamline[-1]
 
             for j in range(streamline_termination_nodes.size(0)):
-                termination_node = streamline_termination_nodes[j]
+                termination_node = streamline_termination_nodes[j,:]
                 distance_start = torch.linalg.norm(start - termination_node)
                 distance_end = torch.linalg.norm(end - termination_node)
 
@@ -121,7 +122,7 @@ class StreamlineSimplificator:
                     Streamlines[i]["starts_at_boundary"] = Singularity[j]["is_boundary"]
                 elif distance_end < tol:
                     Singularity[j]["ending_streamlines"].append(i)
-
+                
                     Streamlines[i]["ending_singularity"] = j
                     Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
                 else:
@@ -133,10 +134,16 @@ class StreamlineSimplificator:
                     if distance_min < tol:
 
                         cutted_streamline = streamline[0:distance_min_idx, :]
+                        
+                        print(cutted_streamline.size())
+                        
+                        print(termination_node.size())
 
-                        new_streamline = torch.cat((cutted_streamline, termination_node), 0)
-                        print(f"type of new streamlines {type(new_streamline)}{new_streamline.shape}")
-                        Streamlines[i]["coords"] = np.array(new_streamline)
+                        Singularity[j]["ending_streamlines"].append(i)
+                        # new_streamline = torch.cat((cutted_streamline, termination_node.unsqueeze(0)), 0)
+                        # print(f"type of new streamlines {type(new_streamline)}{new_streamline.shape}")
+                        # Streamlines[i]["coords"] = np.array(new_streamline)
+                        Streamlines[i]["coords"] = np.array(cutted_streamline)
                         Streamlines[i]["ending_singularity"] = j
                         Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
                         print('Streamline cutted in function pre_processing')
@@ -349,7 +356,7 @@ class StreamlineSimplificator:
 
                 # Avoid division by zero
                 if magnitude < 1e-10:
-                    angle = 0
+                    angle = torch.tensor(0)
                 else:
                     # Get the angle in radians and convert to degrees
                     angle = torch.acos(torch.clamp(dot_product / magnitude, -1.0, 1.0))
