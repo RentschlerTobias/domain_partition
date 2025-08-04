@@ -33,10 +33,10 @@ def plot_streamlines_independet(mesh):
     for i in range(num_sl):
         figsize = (5, 5)
         plt.figure(figsize=figsize)
-        coords= mesh.streamlines[i]
+        streamline= mesh.streamlines[i]
         color = np.random.rand(3,)  # Random RGB color for each face
-        plt.fill(coords[:, 0], coords[:, 1], color=color, edgecolor='gray', linewidth=0.5)
              
+        plt.plot(streamline[:, 0], streamline[:, 1], color=color)
         output_file=f"./figures/streamlines/streamline_{i}.png"
         plt.xlim = [0,1]
         plt.ylim = [0,1]
@@ -191,7 +191,7 @@ def plot_streamlines(mesh, output_file="./figures/streamlines.png", colored=Fals
         end = streamline[-1,:]
         plt.plot(streamline[:, 0], streamline[:, 1], color=color)
    
-    plt.axis('off')
+    # plt.axis('off')
     plt.axis('equal')  # Equal aspect ratio
     plt.tight_layout()
     plt.savefig(output_file, dpi=300, transparent=True)

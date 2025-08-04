@@ -15,7 +15,7 @@ class StreamlineSimplificator:
         Singularity, Streamlines    = self.pre_processing(mesh.streamlines)
         self.Singularity, self.Streamlines     = self.cut_streamlines(Singularity, Streamlines)
         self.mesh.streamlines       = self.merge_streamlines(self.Singularity, self.Streamlines)
-        # #
+        #
         # self.streamline_splines        = self.get_streamlines_as_splines()
         # # 
         # # print('search for intersections')
@@ -32,7 +32,7 @@ class StreamlineSimplificator:
         # #
         # #
         # self.add_graph_attr()
-        # #     #
+        #     #
     def cut_streamlines(self, Singularity, Streamlines):
         print("\n function cut_streamlines \n")
         for key in Singularity.keys():
