@@ -1,45 +1,37 @@
 
-from tools import StreamlinePostProcessor
-from tools import StreamlineSimplificator
-from tools import MeshCheck
-from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator,StreamlineGenerator_v2, Transfinite_Interpolation
-from tools.plotting_tools import *
-from torch_geometric.data import Data
-import numpy as np
-import torch
-import os
-import matplotlib.pyplot as plt
 from data_generator import extract_mesh_data
+import os
+import torch
+import numpy as np
+from torch_geometric.data import Data
+from tools.plotting_tools import *
+from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator, StreamlineGenerator_v2, Transfinite_Interpolation
+from tools import MeshCheck
+from tools import StreamlineSimplificator_v2
+from tools import StreamlineSimplificator
+from tools import StreamlinePostProcessor
+import matplotlib.pyplot as plt
+plt.close()
 
 
-#
-# meshes = torch.load('./saved_meshes/checkpoints/checkpoint_mesh_2.pt')
-# mesh = meshes[h]
-#
-plt.close
+torch.save(streamline.mesh, 'simple_mesh.pt')
 
-frame_field_mesh = torch.load('mesh_frame_field.pt')
+mesh = torch.load('simple_mesh.pt', weights_only=False)
 
-streamline                  = StreamlineGenerator(frame_field_mesh)
-
-streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
-
+streamlines_post_processed  = StreamlinePostProcessor(mesh)
+streamlines_post_processed.mesh.streamline_intersections['spline_intersections']
+streamlines_post_processed.mesh
 airfoil                     = NACA_airfoil()
 random_lc                   = 0.04 + 0.02 * np.random.rand()
 mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
 frameField                  = FrameField(mesh_gen.mesh)
 streamline                  = StreamlineGenerator(frameField.mesh)
-
-plot_streamlines_independet(streamline.mesh)
-len(streamline.mesh.streamlines)
-
-streamlines_post_processed.Singularity
-streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
+streamlines_post_processed  = StreamlinePostProcessor(streamline.mesh)
 blocked_mesh                = streamlines_post_processed.quad_mesh
 transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
 quad_mesh                   = transfiniteInterpolation.quad_mesh
 tri_mesh                    = streamlines_post_processed.mesh
-mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.01)
+mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=1e-3)
 success                     = mesh_check.is_valid
 print(f'!!! \n area difference: \n {mesh_check.quad_area - mesh_check.tri_area}\n !!!')
 
@@ -51,28 +43,7 @@ plot_streamlines(mesh, output_file="./figures/streamlines/streamlines_post_proce
 plot_final_mesh(mesh, output_file="./figures/streamlines/quad_mesh.png")
 plot_faces_independet(mesh)
 plot_streamlines(streamline.mesh, output_file="./figures/streamlines/streamlines.png")
+print('f**')
 
-streamlines_post_processed.get_streamlines_as_splines()
 
-sls =   streamlines_post_processed.Streamlines
-
-for key in sls.keys():
-    print(sls[key]["coords"].shape)
-
-for i in range(len(sls)):
-    sl = sls[i]
-    print(sl.shape)
-
-x = sls[0][:,0]
-x.size
-
-sls =   streamline.mesh.streamlines
-for i in range(len(sls)):
-    sl = sls[i]
-    print(sl.shape)
-
-len(streamline.mesh.streamlines)
-len(sls)
-for  sl in streamlines_post_processed.mesh.streamlines:
-    print(sl.size())
-
+streamlines_post_processed

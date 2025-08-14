@@ -1,4 +1,3 @@
-from networkx.algorithms import distance_measures
 from scipy.interpolate import splprep, splev
 import numpy as np
 from collections import defaultdict
@@ -13,121 +12,506 @@ class StreamlineSimplificator_v2:
     def __init__(self, mesh):
 
         self.mesh = mesh
-        Singularity, Streamlines    = self.pre_processing(mesh.streamlines)
-        self.mesh.streamlines       = self.cut_streamlines(Singularity, Streamlines)
-        self.streamline_splines     = self.get_streamlines_as_splines()
 
-        print('search for intersections')
-        self.intersection_data, self.intersections    = self.find_all_intersections()
+        # Pre-process streamlines
+        Singularity, Streamlines = self.pre_processing(mesh.streamlines)
+        self.Singularity, self.Streamlines = self.cut_streamlines(Singularity, Streamlines)
+        self.mesh.streamlines = self.merge_streamlines(self.Singularity, self.Streamlines)
 
-        self.intersection_data = self.get_intersections()
-        self.mesh.streamline_intersections  = self.intersection_data
-        self.mesh.streamline_intersections_points  = self.intersections
+        # Generate splines
+        self.streamline_splines = self.get_streamlines_as_splines()
 
-        self.quad_edges                     = self.split_splines_at_intersections(self.intersection_data)
+        # Find intersections
+        print('Searching for intersections...')
+        self.intersection_data, self.intersections = self.find_all_intersections()
 
-        self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(self.intersection_data)
-        print('get quad mesh')
-        self.quad_mesh                      = self.get_mesh()
-        self.quad_mesh.streamlines          = self.reconstruct_streamlines_from_edges(self.quad_edges)
-        #
-        #
+        # Store intersection data
+        self.mesh.streamline_intersections = self.intersection_data
+        self.mesh.streamline_intersections_points = self.intersections
+
+        # Generate quad edges and mesh
+        self.quad_edges = self.split_splines_at_intersections(self.intersection_data)
+        self.edges_subdomain, self.nodes_subdomain, self.edge_points = self.extract_subdomain_arrays(
+            self.intersection_data)
+
+        # Generate quad mesh with improved face detection
+        self.quad_mesh = self.get_mesh_improved()
+        self.quad_mesh.streamlines = self.reconstruct_streamlines_from_edges(self.quad_edges)
+
+        # Add graph attributes
         self.add_graph_attr()
-   
+
+    def get_mesh_improved(self):
+        """Improved mesh generation with better face detection"""
+        nodes = torch.tensor(self.nodes_subdomain, dtype=torch.float32)
+
+        # Generate faces with improved algorithm
+        temporary_faces = self.get_faces_improved()
+        faces = self.delete_invalid_faces(temporary_faces, nodes)
+
+        # Create edge index
+        edge_index = self.create_edge_index_from_faces(faces)
+        mesh = Data(x=nodes, edge_index=edge_index, faces=faces)
+
+        return mesh
+
+    def create_edge_index_from_faces(self, faces):
+        """Create edge index from quad faces"""
+        if faces.size(1) == 0:
+            return torch.tensor([[], []], dtype=torch.long)
+
+        edges = []
+        for i in range(faces.size(1)):
+            face = faces[:, i]
+            # Add edges for each quad face
+            for j in range(4):
+                edges.append([face[j], face[(j + 1) % 4]])
+                edges.append([face[(j + 1) % 4], face[j]])  # Bidirectional
+
+        edge_index = torch.tensor(edges, dtype=torch.long).T
+        # Remove duplicates
+        edge_index = torch.unique(edge_index, dim=1)
+        return edge_index
+
+    def get_faces_improved(self):
+        """Improved face generation handling airfoil boundaries"""
+        num_edges = self.edges_subdomain[0].size
+        edges = []
+        edge_centers = {}  # Store edge centers for disambiguation
+
+        # Build edge list with center points
+        for i in range(num_edges):
+            edge = (self.edges_subdomain[0][i], self.edges_subdomain[1][i])
+            edges.append(edge)
+
+            # Calculate edge center for disambiguation
+            if len(self.edge_points[i]) > 0:
+                edge_center = np.mean(self.edge_points[i], axis=0)
+                edge_centers[edge] = edge_center
+                edge_centers[(edge[1], edge[0])] = edge_center  # Reverse edge
+
+        # Create graph
+        graph = nx.Graph()
+        graph.add_edges_from(edges)
+
+        # Find all simple cycles (potential faces)
+        faces = list(nx.simple_cycles(graph, length_bound=4))
+
+        quad_faces = []
+        processed_regions = set()
+
+        for face in faces:
+            if len(face) == 4:
+                # Sort face vertices to create a unique identifier
+                face_id = tuple(sorted(face))
+
+                if face_id not in processed_regions:
+                    # Validate face
+                    if self.is_valid_quad_face(face, edge_centers):
+                        quad_faces.append(face)
+                        processed_regions.add(face_id)
+
+        if len(quad_faces) == 0:
+            print('Warning: No valid quad faces found')
+            return torch.tensor([], dtype=torch.long).reshape(4, 0)
+
+        return torch.tensor(quad_faces, dtype=torch.long).T
+
+    def is_valid_quad_face(self, face, edge_centers):
+        """Check if a quad face is valid (handles airfoil boundaries)"""
+        if len(face) != 4:
+            return False
+
+        # Check if all edges exist
+        for i in range(4):
+            edge = (face[i], face[(i + 1) % 4])
+            if edge not in edge_centers and (edge[1], edge[0]) not in edge_centers:
+                return False
+
+        # Calculate face center
+        face_center = np.zeros(2)
+        for vertex_idx in face:
+            if vertex_idx < len(self.nodes_subdomain):
+                face_center += self.nodes_subdomain[vertex_idx]
+        face_center /= 4
+
+        # Check if face is inside the domain (not crossing airfoil)
+        if hasattr(self.mesh, 'airfoil_boundary'):
+            if self.is_face_crossing_airfoil(face, face_center):
+                return False
+
+        # Check face convexity
+        return self.is_convex_quad(face)
+
+    def is_convex_quad(self, face):
+        """Check if a quad is convex"""
+        if len(face) != 4:
+            return False
+
+        vertices = []
+        for idx in face:
+            if idx < len(self.nodes_subdomain):
+                vertices.append(self.nodes_subdomain[idx])
+
+        if len(vertices) != 4:
+            return False
+
+        # Check cross products for convexity
+        for i in range(4):
+            v1 = vertices[(i + 1) % 4] - vertices[i]
+            v2 = vertices[(i + 2) % 4] - vertices[(i + 1) % 4]
+            cross = v1[0] * v2[1] - v1[1] * v2[0]
+
+            if i == 0:
+                sign = cross > 0
+            elif (cross > 0) != sign:
+                return False  # Not convex
+
+        return True
+
+    def is_face_crossing_airfoil(self, face, face_center):
+        """Check if face crosses the airfoil boundary"""
+        # This is a placeholder - implement based on your airfoil geometry
+        # You might check if edges cross the airfoil or if the face center
+        # is inside the airfoil
+        return False
+
+    def find_all_intersections(self, tolerance=1e-6):
+        """Find all intersections between streamlines with improved handling"""
+        splines = self.streamline_splines
+        all_intersections = []
+
+        for i in range(len(splines)):
+            for j in range(i + 1, len(splines)):
+                if splines[i] is None or splines[j] is None:
+                    continue
+
+                intersections = self.find_spline_intersections_improved(
+                    splines[i], splines[j], tolerance)
+
+                for point, t1, t2 in intersections:
+                    all_intersections.append((point, i, t1, j, t2))
+
+        # Process and deduplicate intersections
+        unique_points = []
+        spline_intersections = defaultdict(list)
+        connectivity = defaultdict(list)
+
+        for point, spline1_idx, t1, spline2_idx, t2 in all_intersections:
+            # Find or create point index
+            point_idx = None
+            for idx, existing_point in enumerate(unique_points):
+                if np.linalg.norm(np.array(point) - np.array(existing_point)) < tolerance:
+                    point_idx = idx
+                    break
+
+            if point_idx is None:
+                point_idx = len(unique_points)
+                unique_points.append(point)
+
+            # Update data structures
+            spline_intersections[spline1_idx].append((point_idx, t1))
+            spline_intersections[spline2_idx].append((point_idx, t2))
+
+            if spline1_idx not in connectivity[point_idx]:
+                connectivity[point_idx].append(spline1_idx)
+            if spline2_idx not in connectivity[point_idx]:
+                connectivity[point_idx].append(spline2_idx)
+
+        # Sort by parameter value
+        for spline_idx in spline_intersections:
+            spline_intersections[spline_idx].sort(key=lambda x: x[1])
+
+        intersection_coords = [torch.tensor(p, dtype=torch.float32) for p in unique_points]
+
+        return {
+            'points': unique_points,
+            'spline_intersections': dict(spline_intersections),
+            'connectivity': dict(connectivity)
+        }, intersection_coords
+
+    def find_spline_intersections_improved(self, spline1, spline2, tolerance=1e-5, num_samples=100):
+        """Improved intersection finding with better numerical stability"""
+        tck1, u1 = spline1
+        tck2, u2 = spline2
+
+        # Sample points along splines
+        u1_fine = np.linspace(0, 1, num_samples)
+        u2_fine = np.linspace(0, 1, num_samples)
+
+        points1 = np.array(splev(u1_fine, tck1)).T
+        points2 = np.array(splev(u2_fine, tck2)).T
+
+        # Find potential intersections using proximity
+        potential_intersections = []
+
+        for i in range(len(points1) - 1):
+            for j in range(len(points2) - 1):
+                # Check segment proximity
+                seg1_start, seg1_end = points1[i], points1[i + 1]
+                seg2_start, seg2_end = points2[j], points2[j + 1]
+
+                # Quick bounding box check
+                if self.segments_may_intersect(seg1_start, seg1_end, seg2_start, seg2_end):
+                    u1_val = u1_fine[i] + (u1_fine[i + 1] - u1_fine[i]) / 2
+                    u2_val = u2_fine[j] + (u2_fine[j + 1] - u2_fine[j]) / 2
+                    potential_intersections.append((u1_val, u2_val))
+
+        # Refine intersections
+        confirmed_intersections = []
+
+        for u1_val, u2_val in potential_intersections:
+            try:
+                from scipy.optimize import minimize
+
+                # Define distance function
+                def distance_squared(params):
+                    t1, t2 = params
+                    point1 = np.array(splev(t1, tck1)).reshape(2)
+                    point2 = np.array(splev(t2, tck2)).reshape(2)
+                    return np.sum((point1 - point2) ** 2)
+
+                # Optimize to find exact intersection
+                result = minimize(distance_squared, [u1_val, u2_val],
+                                  bounds=[(0, 1), (0, 1)],
+                                  method='L-BFGS-B')
+
+                if result.success and result.fun < tolerance ** 2:
+                    t1_intersect, t2_intersect = result.x
+                    point1 = np.array(splev(t1_intersect, tck1)).reshape(2)
+                    point2 = np.array(splev(t2_intersect, tck2)).reshape(2)
+                    intersection_point = (point1 + point2) / 2
+
+                    # Check for duplicates
+                    is_duplicate = False
+                    for existing_point, _, _ in confirmed_intersections:
+                        if np.linalg.norm(np.array(existing_point) - intersection_point) < tolerance:
+                            is_duplicate = True
+                            break
+
+                    if not is_duplicate:
+                        confirmed_intersections.append(
+                            (tuple(intersection_point), t1_intersect, t2_intersect))
+            except:
+                continue
+
+        return confirmed_intersections
+
+    def segments_may_intersect(self, p1, p2, p3, p4):
+        """Check if two line segments may intersect using bounding boxes"""
+        offset = 0.05
+
+        min_x1, max_x1 = min(p1[0], p2[0]) - offset, max(p1[0], p2[0]) + offset
+        min_y1, max_y1 = min(p1[1], p2[1]) - offset, max(p1[1], p2[1]) + offset
+        min_x2, max_x2 = min(p3[0], p4[0]) - offset, max(p3[0], p4[0]) + offset
+        min_y2, max_y2 = min(p3[1], p4[1]) - offset, max(p3[1], p4[1]) + offset
+
+        return (min_x1 <= max_x2 and max_x1 >= min_x2 and
+                min_y1 <= max_y2 and max_y1 >= min_y2)
+
     def cut_streamlines(self, Singularity, Streamlines):
+        print("\n function cut_streamlines \n")
         for key in Singularity.keys():
             streamlines_ending = Singularity[key]["ending_streamlines"]
-            
+
             if len(streamlines_ending) == 0:  # Fixed: was <0
                 continue
-                
+
             for streamline_ends_here in streamlines_ending:
                 if streamline_ends_here not in Streamlines:
                     continue
-                    
+
                 smallest_distance = np.inf
                 starting_singularity = Streamlines[streamline_ends_here]["starting_singularity"]
-                
+
                 if starting_singularity not in Singularity:
                     continue
-                    
+
                 singularity_coords = Singularity[key]["coords"]
                 starting_streamlines = Singularity[starting_singularity]["starting_streamlines"]
-    
+
                 for starting_streamline in starting_streamlines:
                     if starting_streamline not in Streamlines:
                         continue
-                        
-                    coords = Streamlines[starting_streamline]["coords"]
+
+                    coords = torch.from_numpy(Streamlines[starting_streamline]["coords"])
                     if coords is None or len(coords) == 0:
                         continue
-                        
-                    distance = np.linalg.norm(coords - singularity_coords, axis=1)
-                    distance_min_idx = np.argmin(distance)
+
+                    distance = torch.linalg.norm(coords - singularity_coords, axis=1)
+                    distance_min_idx = torch.argmin(distance)
                     distance_min = distance[distance_min_idx]
-    
+
                     if distance_min < smallest_distance:
                         smallest_distance = distance_min
                         streamline_to_cut = starting_streamline
                         idx_to_cut = distance_min_idx
                         sing_to_merge = key
-                
+
                 if 'streamline_to_cut' in locals() and Streamlines[streamline_to_cut]["ending_singularity"] != sing_to_merge:
-                    streamline_coords = Streamlines[streamline_to_cut]["coords"]
-                    sing_coords = Singularity[sing_to_merge]["coords"]
-                    cutted_streamline = streamline_coords[:idx_to_cut + 1, :]
-                    new_streamline = np.vstack([cutted_streamline, sing_coords])
-    
-                    Streamlines[streamline_to_cut]["coords"] = new_streamline
+                    streamline_coords = (Streamlines[streamline_to_cut]["coords"])
+                    sing_coords = (Singularity[sing_to_merge]["coords"])
+                    cutted_streamline = streamline_coords[0:idx_to_cut, :]
+                    new_streamline = np.array(torch.cat((cutted_streamline, sing_coords), 0))
+
+                    # Streamlines[streamline_to_cut]["coords"] = new_streamline
+                    Streamlines[cutted_streamline]["coords"] = new_streamline
                     Streamlines[streamline_to_cut]["ending_singularity"] = sing_to_merge
-                    print('Streamline cutted')
-    
-        new_streamlines = []
-        for key in Streamlines.keys():
-            if Streamlines[key]["coords"] is not None:
-                new_streamlines.append(np.array(Streamlines[key]["coords"]))
-            else: print('streamline has no coodrinates')
-    
-        print(f" type of new streamlines {type(new_streamlines)}")
-        return new_streamlines
-    
-    
+                    print('Streamline cutted in function cut_streamlines')
+
+        return Singularity, Streamlines
+
     def pre_processing(self, streamlines):
+
+        print("\n function pre_processing \n")
         tol = 10e-3
-        
+        tol_big = 25e-3
         Singularity = {}
         Streamlines = {}
-    
+
         mask_c0_nodes = self.mesh.x[:, 2] == 0
         c0_nodes = self.mesh.x[mask_c0_nodes, 0:2]
-        streamline_termination_nodes = np.array([self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords] + list(c0_nodes))
-    
-        for j in range(streamline_termination_nodes.shape[0]):
-            Singularity[j] = {"ending_streamlines": [], "starting_streamlines": [], "coords": streamline_termination_nodes[j]}
-    
+        singularity_coords  = torch.tensor([self.mesh.singularities_coords[sing] for sing in self.mesh.singularities_coords])
+
+        streamline_termination_nodes = torch.cat((c0_nodes, singularity_coords), 0)
+
+        for j in range(streamline_termination_nodes.size(0)):
+            Singularity[j] = {"ending_streamlines": [], "starting_streamlines": [], "coords": streamline_termination_nodes[j], "is_boundary": j >= len(singularity_coords)}
+
         for i in range(len(streamlines)):
-            Streamlines[i] = {"ending_singularity": None, "starting_singularity": None, "coords": streamlines[i]}
-  
+            Streamlines[i] = {"ending_singularity": None, "starting_singularity": None, "coords": streamlines[i], "starts_at_boundary": False, "ends_at_boundary": False}
+
         for i in range(len(streamlines)):
-            streamline = streamlines[i]
+            streamline = torch.from_numpy(streamlines[i])
             start = streamline[0]
             end = streamline[-1]
-           
-            for j in range(streamline_termination_nodes.shape[0]):
-                termination_node = streamline_termination_nodes[j]
-                distance_start = np.linalg.norm(start - termination_node)
-                distance_end = np.linalg.norm(end - termination_node)
-                
+
+            for j in range(streamline_termination_nodes.size(0)):
+                termination_node = streamline_termination_nodes[j, :]
+                distance_start = torch.linalg.norm(start - termination_node)
+                distance_end = torch.linalg.norm(end - termination_node)
+
                 if distance_start < tol:
                     Singularity[j]["starting_streamlines"].append(i)
-   
+
                     Streamlines[i]["starting_singularity"] = j
-    
-                if distance_end < tol:
+                    Streamlines[i]["starts_at_boundary"] = Singularity[j]["is_boundary"]
+                elif distance_end < tol:
                     Singularity[j]["ending_streamlines"].append(i)
-   
+
                     Streamlines[i]["ending_singularity"] = j
-        return Singularity, Streamlines    
+                    Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
+                else:
+
+                    distance = torch.linalg.norm(streamline - termination_node, axis=1)
+                    distance_min_idx = torch.argmin(distance)
+                    distance_min = distance[distance_min_idx]
+
+                    if distance_min < tol:
+
+                        cutted_streamline = streamline[0:distance_min_idx, :]
+
+                        print(cutted_streamline.size())
+
+                        print(termination_node.size())
+
+                        Singularity[j]["ending_streamlines"].append(i)
+                        # new_streamline = torch.cat((cutted_streamline, termination_node.unsqueeze(0)), 0)
+                        # print(f"type of new streamlines {type(new_streamline)}{new_streamline.shape}")
+                        # Streamlines[i]["coords"] = np.array(new_streamline)
+                        Streamlines[i]["coords"] = np.array(cutted_streamline)
+                        Streamlines[i]["ending_singularity"] = j
+                        Streamlines[i]["ends_at_boundary"] = Singularity[j]["is_boundary"]
+                        print('Streamline cutted in function pre_processing')
+
+        return Singularity, Streamlines
+
+    def merge_streamlines(self, Singularity, Streamlines):
+
+        print("\n function merge_streamlines \n")
+        merged_pairs = set()
+
+        for key_i in Streamlines.keys():
+            if key_i in merged_pairs:
+                continue
+
+            if not Streamlines[key_i]["starts_at_boundary"] and not Streamlines[key_i]["ends_at_boundary"]:
+                singularity_start_i = Streamlines[key_i]["starting_singularity"]
+                singularity_end_i = Streamlines[key_i]["ending_singularity"]
+
+                if singularity_start_i is None or singularity_end_i is None:
+                    continue
+
+                for key_j in Streamlines.keys():
+
+                    if not Streamlines[key_j]["starts_at_boundary"] and not Streamlines[key_j]["ends_at_boundary"]:
+                        if key_i == key_j or key_j in merged_pairs:
+                            continue
+
+                        singularity_start_j = Streamlines[key_j]["starting_singularity"]
+                        singularity_end_j = Streamlines[key_j]["ending_singularity"]
+
+                        if singularity_start_j is None or singularity_end_j is None:
+                            continue
+
+                        # Check if streamlines can be merged (end-to-start or start-to-end)
+                        if (singularity_end_i == singularity_start_j and
+                                singularity_start_i == singularity_end_j):
+
+                            streamline_ij = Streamlines[key_i]["coords"]
+                            streamline_ji = Streamlines[key_j]["coords"]
+
+                            if streamline_ij is None or streamline_ji is None:
+                                continue
+
+                            # Determine correct order and orientation
+                            if singularity_end_i == singularity_start_j:
+                                # i->j: keep order, may need to flip j
+                                merged = self.interpolate_streamlines(streamline_ij, streamline_ji)
+                                new_start = singularity_start_i
+                                new_end = singularity_end_j
+                            else:
+                                # j->i: flip order, may need to flip i
+                                merged = self.interpolate_streamlines(streamline_ji, streamline_ij)
+                                new_start = singularity_start_j
+                                new_end = singularity_end_i
+
+                            # Update the first streamline with merged result
+                            Streamlines[key_i]["coords"] = merged
+                            Streamlines[key_i]["starting_singularity"] = new_start
+                            Streamlines[key_i]["ending_singularity"] = new_end
+
+                            # Mark second streamline for removal
+                            merged_pairs.add(key_j)
+
+                            # Update singularity references
+                            if new_start is not None:
+                                if key_j in Singularity[new_start]["starting_streamlines"]:
+                                    Singularity[new_start]["starting_streamlines"].remove(key_j)
+                                if key_i not in Singularity[new_start]["starting_streamlines"]:
+                                    Singularity[new_start]["starting_streamlines"].append(key_i)
+
+                            if new_end is not None:
+                                if key_j in Singularity[new_end]["ending_streamlines"]:
+                                    Singularity[new_end]["ending_streamlines"].remove(key_j)
+                                if key_i not in Singularity[new_end]["ending_streamlines"]:
+                                    Singularity[new_end]["ending_streamlines"].append(key_i)
+
+                                break
+
+        # Remove merged streamlines
+        for key in merged_pairs:
+            del Streamlines[key]
+        print(len(merged_pairs))
+
+        merged_streamlines = []
+        for key in Streamlines.keys():
+            if Streamlines[key]["coords"] is not None:
+                merged_streamlines.append(np.array(Streamlines[key]["coords"]))
+            else:
+                print('streamline has no coodrinates')
+
+        return merged_streamlines
 
     def interpolate_streamlines(self, streamline_ij, streamline_ji, num_points=100):
         # Convert streamlines to splines
@@ -248,7 +632,7 @@ class StreamlineSimplificator_v2:
 
                 # Avoid division by zero
                 if magnitude < 1e-10:
-                    angle = 0
+                    angle = torch.tensor(0)
                 else:
                     # Get the angle in radians and convert to degrees
                     angle = torch.acos(torch.clamp(dot_product / magnitude, -1.0, 1.0))
@@ -295,7 +679,7 @@ class StreamlineSimplificator_v2:
 
         if streamlines == None:
             streamlines = self.mesh.streamlines
-        
+
         for i in range(len(streamlines)):
             streamline = np.array(streamlines[i])
             x = streamline[:, 0]
@@ -481,7 +865,7 @@ class StreamlineSimplificator_v2:
             if spline2_idx not in connectivity[point_idx]:
                 connectivity[point_idx].append(spline2_idx)
 
-        # Sort spline_intersections by parameter value t
+        # Sort spline_intersections by parameter valuet
         for spline_idx in spline_intersections:
             spline_intersections[spline_idx].sort(key=lambda x: x[1])
 

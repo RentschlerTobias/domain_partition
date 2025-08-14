@@ -1,6 +1,5 @@
 
-from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator,StreamlineGenerator_v2
-from tools import StreamlineSimplificator_v2
+from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator
 from tools import StreamlineSimplificator
 from tools import Transfinite_Interpolation
 from tools import MeshCheck
@@ -13,38 +12,26 @@ import os
 import multiprocessing as mp
 import time
 
+
 def get_mesh():
     np.random.seed(int(time.time() * 1000) % 2**32 + os.getpid())
-    
+
     try:
-        print('started function NACA_airfoil()')
         airfoil                     = NACA_airfoil()
-        random_lc                   =  0.04+ 0.02*np.random.rand()
-        print('called function MeshGenerator')
+        random_lc                   = 0.04 + 0.02 * np.random.rand()
         mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
-
-        print('called function FrameField')
         frameField                  = FrameField(mesh_gen.mesh)
-
-        print('called function StreamlineGenerator')
         streamline                  = StreamlineGenerator(frameField.mesh)
-
-        print('called function StreamlineSimplificator')
         streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
-
-        print('called function streamlines_post_processed')
         blocked_mesh                = streamlines_post_processed.quad_mesh
-
-        print('called function Transfinite_Interpolation')
         transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
-
         quad_mesh                   = transfiniteInterpolation.quad_mesh
-        tri_mesh                    = streamline.mesh 
-        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.001)
+        tri_mesh                    = streamlines_post_processed.mesh
+        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=1e-3)
         success                     = mesh_check.is_valid
-        print(f'!!! \n area difference: \n {mesh_check.quad_area-mesh_check.tri_area}\n !!!')
+        print(f'!!! \n area difference: \n {mesh_check.quad_area - mesh_check.tri_area}\n !!!')
         if success == True:
-            mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh) 
+            mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh)
             print('succssess')
             return mesh
         else:
@@ -52,38 +39,39 @@ def get_mesh():
             return None
     except Exception as e:
         print(f'\n domain partition failed: {e} \n')
- 
+
+
 def main():
 
-    number_of_meshes =100
+    number_of_meshes = 10
     checkpoint_interval = 1  # Speichere alle x erfolgreiche Meshes
     checkpoint_dir = "./saved_meshes/checkpoints"
 
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     database = []
-    successful_meshes = 0  
-    failed_meshes = 0  
+    successful_meshes = 0
+    failed_meshes = 0
     counter = 0
     for n in range(number_of_meshes):
         is_valid = False
-        
+
         while is_valid == False:
             mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=300)
-            counter += 1             
-            print(f"\n \n \n counter: {counter} \n \n \n")               
+            counter += 1
+            print(f"\n \n \n counter: {counter} \n \n \n")
             if mesh_data is not None:
-                is_valid = True    
+                is_valid = True
                 database.append(mesh_data)
                 successful_meshes += 1
                 print(f"successful meshes: {successful_meshes}")
-                
+
                 # if n+1 % checkpoint_interval == 0:
                 if is_valid:
                     try:
                         checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
                         torch.save(database, checkpoint_path)
-                        database = [] #resett database
+                        database = []  # resett database
                         print(f"Checkpoint gespeichert: {checkpoint_path}")
                     except Exception as checkpoint_error:
                         print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
@@ -91,13 +79,14 @@ def main():
                 failed_meshes += 1
                 print(f"Warning: Transifinite Mesh is not valid")
 
-    print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes }') 
+    print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes}')
 
     checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
     torch.save(database, checkpoint_path)
     print(f"Final Checkpoint reached")
 
-def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
+
+def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
 
     # Extract features of the triangulated mesh incl. frame_field & streamline generation
 
@@ -114,8 +103,8 @@ def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
 
     frame_field_time = tri_mesh.time_frame_field_generator
     singularities = tri_mesh.singularities
-    streamline_intersections_points= tri_mesh.streamline_intersections_points
-    
+    streamline_intersections_points = tri_mesh.streamline_intersections_points
+
     # Extract the block structure
     blocking_nodes = block_mesh.x
     blocking_faces = block_mesh.faces
@@ -124,18 +113,11 @@ def extract_mesh_data(tri_mesh,quad_mesh,block_mesh):
     quad_coordinates    = quad_mesh.x
     quad_faces          = quad_mesh.faces
     quad_edges          = quad_mesh.edge_index
-    
-    final_mesh          = Data(blocking_nodes=blocking_nodes, blocking_faces = blocking_faces, quad_coordinates= quad_coordinates, quad_faces= quad_faces,quad_edges=quad_edges,streamline_intersections_points=streamline_intersections_points,singularities=singularities, singularities_coords= singularities_coords,frame_field_time=frame_field_time,frame_field_iteration_number=frame_field_iteration_number,frame_field_u=frame_field_u,frame_field_angle=frame_field_angle,streamlines=streamlines,tri_edges_attr=tri_edges_attr,tri_mesh_face_attr=tri_mesh_face_attr,tri_edges=tri_edges,tri_faces=tri_faces,tri_coordinates=tri_coordinates)
+
+    final_mesh          = Data(blocking_nodes=blocking_nodes, blocking_faces=blocking_faces, quad_coordinates=quad_coordinates, quad_faces=quad_faces, quad_edges=quad_edges, streamline_intersections_points=streamline_intersections_points, singularities=singularities, singularities_coords=singularities_coords, frame_field_time=frame_field_time, frame_field_iteration_number=frame_field_iteration_number, frame_field_u=frame_field_u, frame_field_angle=frame_field_angle, streamlines=streamlines, tri_edges_attr=tri_edges_attr, tri_mesh_face_attr=tri_mesh_face_attr, tri_edges=tri_edges, tri_faces=tri_faces, tri_coordinates=tri_coordinates)
 
     return final_mesh
 
 
-
-
-
-
-
-
-
-if __name__ == "__main__":                                                                         
+if __name__ == "__main__":
     main()
