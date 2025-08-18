@@ -16,9 +16,15 @@ plt.close()
 
 torch.save(streamline.mesh, 'simple_mesh.pt')
 
+import torch
+from tools import StreamlinePostProcessor
 mesh = torch.load('simple_mesh.pt', weights_only=False)
 
 streamlines_post_processed  = StreamlinePostProcessor(mesh)
+streamlines_post_processed.faces
+
+
+
 streamlines_post_processed.mesh.streamline_intersections['spline_intersections']
 streamlines_post_processed.mesh
 airfoil                     = NACA_airfoil()

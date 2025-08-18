@@ -1,9 +1,3 @@
-import numpy as np
-from numba import jit, prange
-from scipy.optimize import minimize
-from scipy.interpolate import splev, splprep
-from typing import List
-
 
 
 class StreamlineIntersectionSplitter:
@@ -167,4 +161,3 @@ def check_bounding_boxes_parallel(points1, points2, u1_fine, u2_fine, offset_bou
             results[idx] = [-1, -1]
     
     return results[results[:, 0] >= 0]
-
