@@ -66,7 +66,7 @@ def main():
                     successful_meshes += 1
                     print(f"successful meshes: {successful_meshes}")
 
-                    if is_valid:
+                    if successful_meshes % checkpoint_interval == 0:
                         try:
                             checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
                             torch.save(database, checkpoint_path)
