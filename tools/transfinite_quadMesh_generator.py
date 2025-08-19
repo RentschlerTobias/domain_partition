@@ -7,72 +7,119 @@ from torch_geometric.data import Data
 
 
 class QuadMeshGenerator:
-    def __init__(self, blocked_geometry, lc=0.5):
+    def __init__(self, block_mesh, lc=0.5):
 
-        self.geometry = blocked_geometry 
-        self.mesh = self.get_mesh(lc)
+        self.nodes = block_mesh.x
+        self.faces = block_mesh.faces
 
-    def get_spline_of_edge(self,edge):
+        self.streamline_mapping         = block_mesh.edge_to_streamline
+        self.transfinite_divisions      = 20
 
-        source_node = self.geometry.x[edge[0],0,:2]
-        destination_node = self.geometry.x[edge[1],0,:2]
-        streamlines = self.geometry.streamlines    
-        spline = torch.where
-    def get_mesh(self, lc):
+        self.transfinite_interpolation()
+        self.transfinite_mesh = self.gmsh_mesh_to_torch_graph()
+
+    def faces_to_edges(self, faces):
+        if faces.size()[0] == 3:
+            edges = torch.cat(
+                [faces[[0, 1], :], faces[[1, 2], :], faces[[2, 0], :]], dim=1)
+        if faces.size()[0] == 4:
+            edges = torch.cat([faces[[0, 1], :], faces[[1, 2], :], faces[[
+                              2, 3], :], faces[[3, 0], :]], dim=1)
+
+        edges = to_undirected(edges)
+        edges = edges.to(torch.long)
+        return edges
+
+    def transfinite_interpolation(self):
 
         gmsh.initialize()
-        gmsh.model.add("Blockstructured Mesh")
-        occ = gmsh.model.occ
+        gmsh.model.add("quad_mesh")
+        gmsh.model.mesh.setTransfiniteAutomatic([], cornerAngle=2.35, recombine=True)
 
-        for face in self.geometry.faces.T:
+        points = {}
+        for i, face in enumerate(self.faces.T):
+            curves = []
+            for j in range(4):
+                edge = (face[j].item(), face[(j + 1) % 4].item())
+                streamline = self.streamline_mapping[edge]
 
-            quad_nodes = self.geometry.x[face, :]
+                curve_points = []
+                for pt in streamline:
+                    key = (round(pt[0], 3), round(pt[1], 3))
+                    if key not in points:
+                        points[key] = gmsh.model.geo.addPoint(pt[0], pt[1], 0)
+                    curve_points.append(points[key])
 
-            edges = []
-            edges = [[face[0],face[1]],[[face[1],face[2]],[[face[2],face[3]],[[face[3],face[0]]]
+                if len(curve_points) == 2:
+                    curve_id = gmsh.model.geo.addLine(curve_points[0], curve_points[1])
+                else:
+                    curve_id = gmsh.model.geo.addSpline(curve_points)
 
-            for edge in egdes:
-                spline = self.get_spline_of_edge(edge)
+                curves.append(curve_id)
+                gmsh.model.geo.mesh.setTransfiniteCurve(curve_id, self.transfinite_divisions)
 
+            loop = gmsh.model.geo.addCurveLoop(curves)
+            surf = gmsh.model.geo.addPlaneSurface([loop])
+            gmsh.model.geo.mesh.setTransfiniteSurface(surf, "Alternate")
+            gmsh.model.geo.mesh.setRecombine(2, surf)
 
+        gmsh.model.geo.synchronize()
+        gmsh.model.mesh.generate(2)
 
-        boundary_tags = []
-        for i, point in enumerate(boundary_points):
-            boundary_tags.append(occ.addPoint(*point, lc, tag=i + 1))
-        boundary_lines = [
-            occ.addLine(boundary_tags[0], boundary_tags[1]),
-            occ.addLine(boundary_tags[1], boundary_tags[2]),
-            occ.addLine(boundary_tags[2], boundary_tags[3]),
-            occ.addLine(boundary_tags[3], boundary_tags[0])
-        ]
-        outer_loop = occ.addCurveLoop(boundary_lines)
-        streamlines =[]
-        num_points = len(boundary_points)
-        for i in range(num_points):
-            start_point = boundary_points[i][:2]  # (x, y) of the first point
-            end_point   = boundary_points[(i + 1) % num_points][:2]  # (x, y) of the next point
-            boundary_streamline = []
-            boundary_streamline.append(np.array(start_point))  # First point
-            boundary_streamline.append(np.array(end_point))    # Second point
-            
-            streamlines.append(np.array(boundary_streamline))
-        # Add airfoil geometry as a spline
-        suction_points = []
-        pressure_points = []
-        for i, point in enumerate(airfoil.suction_side_rotated):
-            suction_points.append(occ.addPoint(point[0], point[1], 0, lc))
-        for i, point in enumerate(airfoil.pressure_side_rotated):
-            pressure_points.append(occ.addPoint(point[0], point[1], 0, lc))
+    def gmsh_mesh_to_torch_graph(self):
 
-        suction_spline = occ.addSpline(suction_points)
-        pressure_spline = occ.addSpline(pressure_points)
-        airfoil_loop = occ.addCurveLoop([suction_spline, pressure_spline])
+        node_tags, node_coords, _   = gmsh.model.mesh.getNodes()
+        node_coords                 = np.array(node_coords).reshape(-1, 3)
+        node_coords_tensor          = torch.from_numpy(node_coords).float()
+        node_tags                   = node_tags - 1  # Convert to 0-based indexing
 
-        streamlines.append(np.array(airfoil.suction_side_rotated))
-        streamlines.append(np.array(airfoil.pressure_side_rotated))
-        print(f"suction_side_rotated shape: {np.array(airfoil.suction_side_rotated).shape}")
-        print(f"pressure_side_rotated shape: {np.array(airfoil.pressure_side_rotated).shape}")
-        # Add the plane surface
-        plane_surface = occ.addPlaneSurface([outer_loop, airfoil_loop])
-        occ.synchronize()
+        element_types, element_tags, node_tags_per_element = gmsh.model.mesh.getElements()
 
+        faces = None
+
+        # Check for triangles and quads
+        new_faces = None
+        for etype, etags, ntags in zip(element_types, element_tags, node_tags_per_element):
+            if etype == 3:  # Quadrilaterals - prioritize these
+                new_faces = np.array(ntags).reshape(-1, 4) - 1  # Convert to 0-based indexing
+                break
+            elif etype == 2 and faces is None:  # Only use triangles if no quads are found
+                new_faces = np.array(ntags).reshape(-1, 3) - 1  # Convert to 0-based indexing
+
+        if new_faces is None:
+            raise ValueError(
+                "No triangular or quadrilateral elements found in the mesh.")
+
+        # Convert faces to PyTorch format
+        faces_tensor = torch.tensor(new_faces.T.astype(
+            np.int64), dtype=torch.long)  # Transpose and cast to int64
+
+        # Remove isolated nodes and adjust new node indices in faces_tensor
+        edge_index = self.faces_to_edges(faces_tensor)
+        num_nodes = node_coords_tensor.size(0)
+
+        new_edge_index, _, mask = remove_isolated_nodes(edge_index, num_nodes=num_nodes)
+
+        # Create a mapping for old to new indices
+        index_mapping = torch.full((node_coords_tensor.size(0),), -1, dtype=torch.long)
+        index_mapping[mask] = torch.arange(mask.sum(), dtype=torch.long)
+
+        # Adjust faces to remove invalid faces and remap indices
+        valid_faces_mask = (index_mapping[faces_tensor] >= 0).all(
+            dim=0)  # Check if all nodes in a face are valid
+        # Keep only valid faces
+        filtered_faces = faces_tensor[:, valid_faces_mask]
+        # Remap old indices to new indices
+        updated_faces = index_mapping[filtered_faces]
+        for i in range(node_coords_tensor.size(0)):
+            nodeTag = i + 1
+            coord, _, dim, tag = gmsh.model.mesh.getNode(nodeTag)
+            node_coords_tensor[i, 2] = dim
+
+        # Update node coordinates based on mask
+        new_node_coords = node_coords_tensor[mask, :]
+
+        gmsh.finalize()
+
+        return Data(x=new_node_coords, edge_index=new_edge_index,
+                    faces=updated_faces)

@@ -1,6 +1,32 @@
 from tools import streamline_simplificator
 
 
+def plt_faces(mesh):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import torch
+
+    nodes = mesh.x
+    faces = mesh.faces
+    streamline_mapping = mesh.edge_to_streamline_mapping
+
+    num_edges_each_faces = faces.size(0)
+
+    for i, face in enumerate(faces.T):
+        streamlines = []
+        rand_color = np.random.rand(3,)
+        for j in range(num_edges_each_faces):
+            edge_idx1 = j
+            edge_idx2 = (j + 1) % num_edges_each_faces
+
+            edge = (face[edge_idx1].item(), face[edge_idx2].item())
+            streamline = streamline_mapping[edge]
+            streamlines.append(streamline)
+
+        surface = np.vstack(streamlines)
+        plt.fill(surface[:, 0], surface[:, 1], color=rand_color)
+
+
 def plot_streamline_dicc(Streamlines):
     import matplotlib.pyplot as plt
     import numpy as np

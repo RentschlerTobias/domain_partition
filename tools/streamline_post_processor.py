@@ -1,7 +1,9 @@
+from torch_geometric import edge_index
 from torch_geometric.data import Data
 from tools.streamline_merging import StreamlineMerging
 from tools.streamline_intersection_splitter import StreamlineIntersectionSplitter
 from tools.streamlines_to_quad_faces import QuadFaceGenerator
+
 
 class StreamlinePostProcessor:
 
@@ -15,5 +17,5 @@ class StreamlinePostProcessor:
         updated_streamlines             = splitter.process_streamlines(new_streamlines)
         faceGenerator                   = QuadFaceGenerator(updated_streamlines)
 
-        self.faces, self.edge_to_streamline,self.edge_index, self.nodes = faceGenerator.get_data()
-        
+        faces, edge_to_streamline, edge_index, nodes = faceGenerator.get_data()
+        self.block_mesh = Data(x=nodes, edge_index=edge_index, faces=faces, edge_to_streamline=edge_to_streamline)

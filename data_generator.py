@@ -1,7 +1,6 @@
 
-from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator
-from tools import StreamlineSimplificator
-from tools import Transfinite_Interpolation
+from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator, StreamlinePostProcessor
+from tools import QuadMeshGenerator
 from tools import MeshCheck
 from tools.plotting_tools import *
 from tools.save_load import *
@@ -22,10 +21,10 @@ def get_mesh():
         mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
         frameField                  = FrameField(mesh_gen.mesh)
         streamline                  = StreamlineGenerator(frameField.mesh)
-        streamlines_post_processed  = StreamlineSimplificator(streamline.mesh)
-        blocked_mesh                = streamlines_post_processed.quad_mesh
-        transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
-        quad_mesh                   = transfiniteInterpolation.quad_mesh
+        streamlines_post_processed  = StreamlinePostProcessor(streamline.mesh)
+        blocked_mesh                = streamlines_post_processed.block_mesh
+        transfiniteInterpolator     = QuadMeshGenerator(blocked_mesh)
+        quad_mesh                   = transfiniteInterpolator.transfinite_mesh
         tri_mesh                    = streamlines_post_processed.mesh
         mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=1e-3)
         success                     = mesh_check.is_valid
@@ -43,8 +42,8 @@ def get_mesh():
 
 def main():
 
-    number_of_meshes = 10
-    checkpoint_interval = 1  # Speichere alle x erfolgreiche Meshes
+    number_of_meshes = 1000
+    checkpoint_interval = 10  # Speichere alle x erfolgreiche Meshes
     checkpoint_dir = "./saved_meshes/checkpoints"
 
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -57,27 +56,30 @@ def main():
         is_valid = False
 
         while is_valid == False:
-            mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=300)
-            counter += 1
-            print(f"\n \n \n counter: {counter} \n \n \n")
-            if mesh_data is not None:
-                is_valid = True
-                database.append(mesh_data)
-                successful_meshes += 1
-                print(f"successful meshes: {successful_meshes}")
+            try:
+                mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=300)
+                counter += 1
+                print(f"\n \n \n counter: {counter} \n \n \n")
+                if mesh_data is not None:
+                    is_valid = True
+                    database.append(mesh_data)
+                    successful_meshes += 1
+                    print(f"successful meshes: {successful_meshes}")
 
-                # if n+1 % checkpoint_interval == 0:
-                if is_valid:
-                    try:
-                        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
-                        torch.save(database, checkpoint_path)
-                        database = []  # resett database
-                        print(f"Checkpoint gespeichert: {checkpoint_path}")
-                    except Exception as checkpoint_error:
-                        print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
-            else:
-                failed_meshes += 1
-                print(f"Warning: Transifinite Mesh is not valid")
+                    # if n+1 % checkpoint_interval == 0:
+                    if is_valid:
+                        try:
+                            checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
+                            torch.save(database, checkpoint_path)
+                            database = []  # resett database
+                            print(f"Checkpoint gespeichert: {checkpoint_path}")
+                        except Exception as checkpoint_error:
+                            print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
+                else:
+                    failed_meshes += 1
+                    print(f"Warning: Transifinite Mesh is not valid")
+            except Exception as checkpoint_error:
+                print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
 
     print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes}')
 
@@ -103,7 +105,6 @@ def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
 
     frame_field_time = tri_mesh.time_frame_field_generator
     singularities = tri_mesh.singularities
-    streamline_intersections_points = tri_mesh.streamline_intersections_points
 
     # Extract the block structure
     blocking_nodes = block_mesh.x
@@ -114,7 +115,7 @@ def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
     quad_faces          = quad_mesh.faces
     quad_edges          = quad_mesh.edge_index
 
-    final_mesh          = Data(blocking_nodes=blocking_nodes, blocking_faces=blocking_faces, quad_coordinates=quad_coordinates, quad_faces=quad_faces, quad_edges=quad_edges, streamline_intersections_points=streamline_intersections_points, singularities=singularities, singularities_coords=singularities_coords, frame_field_time=frame_field_time, frame_field_iteration_number=frame_field_iteration_number, frame_field_u=frame_field_u, frame_field_angle=frame_field_angle, streamlines=streamlines, tri_edges_attr=tri_edges_attr, tri_mesh_face_attr=tri_mesh_face_attr, tri_edges=tri_edges, tri_faces=tri_faces, tri_coordinates=tri_coordinates)
+    final_mesh          = Data(blocking_nodes=blocking_nodes, blocking_faces=blocking_faces, quad_coordinates=quad_coordinates, quad_faces=quad_faces, quad_edges=quad_edges, singularities=singularities, singularities_coords=singularities_coords, frame_field_time=frame_field_time, frame_field_iteration_number=frame_field_iteration_number, frame_field_u=frame_field_u, frame_field_angle=frame_field_angle, streamlines=streamlines, tri_edges_attr=tri_edges_attr, tri_mesh_face_attr=tri_mesh_face_attr, tri_edges=tri_edges, tri_faces=tri_faces, tri_coordinates=tri_coordinates)
 
     return final_mesh
 
