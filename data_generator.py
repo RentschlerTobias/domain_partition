@@ -40,53 +40,6 @@ def get_mesh():
         print(f'\n domain partition failed: {e} \n')
 
 
-def main():
-
-    number_of_meshes = 1000
-    checkpoint_interval = 10  # Speichere alle x erfolgreiche Meshes
-    checkpoint_dir = "./saved_meshes/checkpoints"
-
-    os.makedirs(checkpoint_dir, exist_ok=True)
-
-    database = []
-    successful_meshes = 0
-    failed_meshes = 0
-    counter = 0
-    for n in range(number_of_meshes):
-        is_valid = False
-
-        while is_valid == False:
-            try:
-                mesh_data = mp.Pool(1).apply_async(get_mesh).get(timeout=300)
-                counter += 1
-                print(f"\n \n \n counter: {counter} \n \n \n")
-                if mesh_data is not None:
-                    is_valid = True
-                    database.append(mesh_data)
-                    successful_meshes += 1
-                    print(f"successful meshes: {successful_meshes}")
-
-                    # if n+1 % checkpoint_interval == 0:
-                    if is_valid:
-                        try:
-                            checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
-                            torch.save(database, checkpoint_path)
-                            database = []  # resett database
-                            print(f"Checkpoint gespeichert: {checkpoint_path}")
-                        except Exception as checkpoint_error:
-                            print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
-                else:
-                    failed_meshes += 1
-                    print(f"Warning: Transifinite Mesh is not valid")
-            except Exception as checkpoint_error:
-                print(f"Warnung: Fehler beim Speichern des Checkpoints: {checkpoint_error}")
-
-    print(f'total failed meshes {failed_meshes}; total successful meshes {successful_meshes}')
-
-    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
-    torch.save(database, checkpoint_path)
-    print(f"Final Checkpoint reached")
-
 
 def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
 

@@ -2,7 +2,7 @@
 
 #PBS -N DataGenMesh
 #PBS -l walltime=48:00:00
-#PBS -l nodes=bernoulli.ihs.uni-stuttgart.de:ppn=8
+#PBS -l nodes=kepsilon.ihs.uni-stuttgart.de:ppn=64
 # go to submit directory
 
 cd $PBS_O_WORKDIR
@@ -14,6 +14,6 @@ export OSLO_LOCK_PATH=~/tmp
 
 export FOAM_SIGFPE=false
 
-python main.py > output.log
+python data_generator.py > output.log
 
 deactivate
