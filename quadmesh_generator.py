@@ -19,9 +19,9 @@ def get_mesh():
  
 def main():
 
-    number_of_meshes =1000
-    checkpoint_interval = 100  # Speichere alle x erfolgreiche Meshes
-    checkpoint_dir = "./saved_meshes/quad_meshes/checkpoints"
+    number_of_meshes =10000 
+    checkpoint_interval = 1000  # Speichere alle x erfolgreiche Meshes
+    checkpoint_dir = "./saved_meshes/quad_meshes/checkpoints_quad_meshes"
 
     os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -45,7 +45,7 @@ def main():
                 database.append(mesh_data)
                 successful_meshes += 1
                 print(f"successful meshes: {successful_meshes}")
-                if (n+1)%checkpoint_interval==0:
+                if (successful_meshes)%checkpoint_interval==0:
                     try:
                             checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
                             torch.save(database, checkpoint_path)

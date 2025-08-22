@@ -42,9 +42,9 @@ def get_mesh():
 
 def main():
 
-    number_of_meshes = 10
-    checkpoint_interval = 2  # Speichere alle x erfolgreiche Meshes
-    checkpoint_dir = "./saved_meshes/checkpoints"
+    number_of_meshes = 100
+    checkpoint_interval = 10  # Speichere alle x erfolgreiche Meshes
+    checkpoint_dir = "./saved_meshes/checkpoints_mars"
 
     os.makedirs(checkpoint_dir, exist_ok=True)
 
