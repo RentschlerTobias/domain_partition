@@ -10,8 +10,8 @@ class StreamlineMerging:
     def __init__(self, mesh: Data, verbose: bool = True):
 
         self.verbose = verbose
-        self.Streamlines = self.prepare_streamlines(mesh)
-        self.new_streamlines = self.merge_streamlines(self.Streamlines)
+        self.Streamlines,self.Singularities = self.prepare_streamlines(mesh)
+        self.new_streamlines                = self.merge_streamlines(self.Streamlines)
 
     def prepare_streamlines(self, mesh: Data):
 
@@ -34,12 +34,17 @@ class StreamlineMerging:
 
         for i in range(len(streamlines)):
             streamline = torch.from_numpy(streamlines[i])
-            Streamlines[i] = {"singularity_in": None, "singularity_out": None, "coords": streamline, "is_boundary": False}
+            Streamlines[i] = {"singularity_in": None, "singularity_out": None, "coords": streamline, "is_boundary": False,"angle_in":None, "angle_out": None }
 
         for i in range(len(streamlines)):
             streamline = torch.from_numpy(streamlines[i])
             start = streamline[0]
             end = streamline[-1]
+            
+            potential_cut = [] # store the indices where a streamline has a short distance to a termination node, cut it at the first index
+            
+            start_is_boundary = False
+            end_is_boundary = False
 
             for j in range(streamline_termination_nodes.size(0)):
 
@@ -47,44 +52,118 @@ class StreamlineMerging:
                 distance_start      = torch.linalg.norm(start - termination_node)
                 distance_end        = torch.linalg.norm(end - termination_node)
 
-                start_is_boundary = False
-                end_is_boundary = False
 
                 if distance_start < tol:
 
                     start_is_boundary = Singularities[j]["is_boundary"]
                     Singularities[j]["streamline_out"].append(i)
                     Streamlines[i]["singularity_out"] = j
+                    
+                    dx = streamline[1,0] - streamline[0,0]
+                    dy = streamline[1,1] - streamline[0,1]
+                    
+                    Streamlines[i]["angle_out"] = torch.atan2(dy,dx)
 
                 elif distance_end < tol:
 
                     end_is_boundary = Singularities[j]["is_boundary"]
                     Singularities[j]["streamline_in"].append(i)
                     Streamlines[i]["singularity_in"] = j
+                    
+                    dx = streamline[-1,0] - streamline[-2,0]
+                    dy = streamline[-1,1] - streamline[-2,1]
+                    
+                    Streamlines[i]["angle_in"] = torch.atan2(dy,dx)
+            if start_is_boundary and end_is_boundary:
+                Streamlines[i]["is_boundary"] = True
 
-                else:
+        return Streamlines,Singularities
 
-                    distance = torch.linalg.norm(streamline - termination_node, axis=1)
-                    distance_min_idx = torch.argmin(distance)
-                    distance_min = distance[distance_min_idx]
+    def find_missed_streamline_endpoints(self, Streamlines, Singularities):
+    
+        for key in Singularities.keys():
+            s_in = Singularities[key]["streamline_in"]
 
-                    if distance_min < tol:
+            if not s_in:
+                continue
 
-                        if self.verbose == True:
-                            print(f"\n streamline cutted at index {distance_min_idx} \n")
+            s_out = Singularities[key]["streamline_out"]
+            if not s_out:
+                continue
 
-                        end_is_boundary = Singularities[j]["is_boundary"]
+            # Für jede eingehende Stromlinie
+            for streamline_in in s_in:
+                angle_in = Streamlines[streamline_in]['angle_in']
 
-                        cutted_streamline = streamline[0:distance_min_idx, :]
+                # Finde beste passende ausgehende Stromlinie
+                best_angle_diff = torch.pi  # Maximaler Winkelunterschied
+                best_match_id = None
 
-                        Singularities[j]["streamline_in"].append(i)
-                        Streamlines[i]["coords"] = cutted_streamline
-                        Streamlines[i]["singularity_in"] = j
-                if start_is_boundary and end_is_boundary:
-                    Streamlines[i]["is_boundary"] = True
+                for streamline_out in s_out:
+                    angle_out = Streamlines[streamline_out]['angle_out']
 
-        return Streamlines
+                    # Normalisiere Winkeldifferenz auf [-π, π]
+                    angle_diff = angle_in - angle_out
+                    angle_diff = torch.atan2(torch.sin(angle_diff), torch.cos(angle_diff))
+                    angle_diff_abs = torch.abs(angle_diff)
 
+                    # Prüfe ob dies ein Gegenstück ist (ungefähr 180° Unterschied)
+                    if torch.abs(angle_diff_abs - torch.pi) < best_angle_diff:
+                        best_angle_diff = torch.abs(angle_diff_abs - torch.pi)
+                        best_match_id = streamline_out
+
+                        if self.verbose:
+                            print(f'Found potential match: streamline_in={streamline_in}, '
+                                  f'streamline_out={best_match_id}, angle_diff={angle_diff_abs:.3f}')
+
+                # Wenn eine passende Stromlinie gefunden wurde
+                if best_match_id is not None and best_angle_diff < torch.pi/4:  # Toleranz von 45°
+                    # Die ausgehende Stromlinie sollte an der anderen Singularität enden
+                    target_sing_id = Streamlines[streamline_in]["singularity_out"]
+
+                    # Überprüfe ob diese Stromlinie noch kein Ende hat
+                    if Streamlines[best_match_id]["singularity_in"] is None and target_sing_id is not None:
+                        target_singularity = Singularities[target_sing_id]['coords']
+                        streamline_coords = Streamlines[best_match_id]["coords"]
+
+                        # Berechne Distanz aller Punkte zur Ziel-Singularität
+                        distances = torch.linalg.norm(
+                            streamline_coords - target_singularity.unsqueeze(0), 
+                            dim=1
+                        )
+
+                        # Finde nächsten Punkt
+                        min_idx = torch.argmin(distances)
+                        min_distance = distances[min_idx]
+
+                        if self.verbose:
+                            print(f'Streamline {best_match_id} passes singularity {target_sing_id} '
+                                  f'at distance {min_distance:.6f} at index {min_idx}')
+
+                        # Schneide nur wenn Distanz klein genug ist
+                        if min_distance < 0.1:  # Toleranz anpassen
+                            # Schneide Stromlinie am nächsten Punkt
+                            cut_streamline = streamline_coords[:min_idx+1, :]
+
+                            # Update Stromlinie
+                            Streamlines[best_match_id]['coords'] = cut_streamline
+                            Streamlines[best_match_id]["singularity_in"] = target_sing_id
+
+                            # Update Singularität
+                            if best_match_id not in Singularities[target_sing_id]["streamline_in"]:
+                                Singularities[target_sing_id]["streamline_in"].append(best_match_id)
+
+                            # Berechne neuen Eingangswinkel
+                            if len(cut_streamline) > 1:
+                                dx = cut_streamline[-1, 0] - cut_streamline[-2, 0]
+                                dy = cut_streamline[-1, 1] - cut_streamline[-2, 1]
+                                Streamlines[best_match_id]["angle_in"] = torch.atan2(dy, dx)
+
+                            if self.verbose:
+                                print(f'Connected streamline {best_match_id} to singularity {target_sing_id}')
+
+        return Streamlines, Singularities
+                
     def merge_streamlines(self, Streamlines: dict):
 
         if self.verbose:
@@ -99,7 +178,7 @@ class StreamlineMerging:
         for pair in merge_pairs:
             merged_keys.add(pair[0])
             merged_keys.add(pair[1])
-
+        
         new_streamlines = []
 
         for key in Streamlines.keys():
@@ -147,18 +226,23 @@ class StreamlineMerging:
         return merge_pairs
 
     def get_streamlines_as_splines(self, streamlines):
-
         splines = []
-        for i in range(len(streamlines)):
-            streamline = np.array(streamlines[i])
+
+        for streamline in streamlines:
+            streamline = np.array(streamline)
             x = streamline[:, 0]
             y = streamline[:, 1]
-            if x.size == 2:
-                tck, u = splprep([x, y], s=0, k=1)  # k=1 linear splines
-                splines.append([tck, u])
-            else:
-                tck, u = splprep([x, y], s=0)  # Cubic Splines (Default)
-                splines.append([tck, u])
+            m = x.shape[0]
+
+            # choose degree: min(3, m-1)
+            k = min(3, m-1)
+
+            # At least 2 points are needed
+            if m < 2:
+                continue  # or raise an error
+
+            tck, u = splprep([x, y], s=0, k=k)
+            splines.append([tck, u])
 
         return splines
 

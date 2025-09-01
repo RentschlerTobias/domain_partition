@@ -14,9 +14,10 @@ class StreamlineIntersectionSplitter:
     
     def process_streamlines(self, streamlines: List):
         """Main method to find intersections and split streamlines."""
-        splines = self.get_streamlines_as_splines(streamlines)
-        split_points = self.find_all_intersections(splines)
-        new_splines = self.split_streamlines(splines, split_points)
+
+        splines         = self.get_streamlines_as_splines(streamlines)
+        split_points    = self.find_all_intersections(splines)
+        new_splines     = self.split_streamlines(splines, split_points)
         return self.splines_to_points(new_splines)
         
     def find_all_intersections(self, splines):
@@ -126,13 +127,17 @@ class StreamlineIntersectionSplitter:
             streamline = np.array(streamlines[i])
             x = streamline[:, 0]
             y = streamline[:, 1]
-            if x.size == 2:
-                tck, u = splprep([x, y], s=0, k=1)  # k=1 linear splines
-                splines.append([tck, u])
-            else:
-                tck, u = splprep([x, y], s=0)  # Cubic Splines (Default)
-                splines.append([tck, u])
+            
+            m = x.shape[0]
 
+            k = min(3,m-1)
+            
+            if m<2:
+                continue
+
+            tck, u = splprep([x, y], s=0, k=k)  # k=1 linear splines
+            splines.append([tck, u])
+            
         return splines
 
 # Standalone parallel function (can't be a class method with numba)
