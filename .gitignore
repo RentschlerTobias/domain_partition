@@ -1,1 +1,7 @@
 saved_meshes/
+__pycache__/
+figures/
+*.pyc
+*.log
+*.png
+*.pt
