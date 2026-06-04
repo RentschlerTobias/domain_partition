@@ -94,7 +94,7 @@ def main():
         if tmp_path is not None and os.path.exists(tmp_path):
             try:
                 # Mesh im Hauptprozess laden
-                mesh_data = torch.load(tmp_path)
+                mesh_data = torch.load(tmp_path, weights_only=False)
                 os.remove(tmp_path)  # Temp-Datei wieder löschen
 
                 successful_meshes += 1

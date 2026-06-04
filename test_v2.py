@@ -31,7 +31,7 @@ def load_mesh():
     extension = 'post_processing'
     path = f'./saved_meshes/checkpoints_test/mesh_{extension}.pt'
 
-    block_mesh = torch.load(path)
+    block_mesh = torch.load(path, weights_only=False)
     return block_mesh
 
 
@@ -68,7 +68,8 @@ def cut_streamlines(Singularities, Streamlines):
 
                 if best_angle_diff < (2 / 3) * np.pi and best_streamline is not None:
                     Streamlines[best_streamline]["cut_at_sing"] = singularity_start
-                    print(f'merge streamline {best_streamline} with sing {singularity_start}')
+                    print(f'merge streamline {
+                          best_streamline} with sing {singularity_start}')
 
     for key in Streamlines.keys():
         if "cut_at_sing" in Streamlines[key] and Streamlines[key]["cut_at_sing"] is not None:
@@ -79,7 +80,8 @@ def cut_streamlines(Singularities, Streamlines):
                 streamline_coords = Streamlines[key]["coords"]
 
                 if streamline_coords is not None and len(streamline_coords) > 0:
-                    distances = np.linalg.norm(streamline_coords - sing_coords.reshape(1, -1), axis=1)
+                    distances = np.linalg.norm(
+                        streamline_coords - sing_coords.reshape(1, -1), axis=1)
                     cut_index = np.argmin(distances)
 
                     if cut_index > 0:
@@ -103,13 +105,15 @@ def streamline_post_processing(mesh):
 
     mask_c0_nodes = mesh.tri_coordinates[:, 2] == 0
     c0_nodes = mesh.tri_coordinates[mask_c0_nodes, 0:2]
-    streamline_termination_nodes = np.array([mesh.singularities_coords[sing] for sing in mesh.singularities_coords] + list(c0_nodes))
+    streamline_termination_nodes = np.array(
+        [mesh.singularities_coords[sing] for sing in mesh.singularities_coords] + list(c0_nodes))
 
     for j in range(streamline_termination_nodes.shape[0]):
         Singularity[j] = {"s_in": [], "s_out": [], "coords": None}
 
     for i in range(len(streamlines)):
-        Streamlines[i] = {"s_in": None, "s_out": None, "angle_in": None, "angle_out": None, "coords": None, "cut_at_sing": None}
+        Streamlines[i] = {"s_in": None, "s_out": None, "angle_in": None,
+                          "angle_out": None, "coords": None, "cut_at_sing": None}
 
     for i in range(len(streamlines)):
         streamline = streamlines[i]
@@ -133,17 +137,21 @@ def streamline_post_processing(mesh):
                 print('streamline starts at singularity')
                 break
             else:
-                distance = np.linalg.norm(streamline - termination_node, axis=1)
+                distance = np.linalg.norm(
+                    streamline - termination_node, axis=1)
                 distance_min_idx = np.argmin(distance)
                 distance_min = distance[distance_min_idx]
 
                 if distance_min < tol_2:
 
                     cutted_streamline = streamline[:distance_min_idx, :]
-                    new_streamline = np.vstack([cutted_streamline, termination_node])
+                    new_streamline = np.vstack(
+                        [cutted_streamline, termination_node])
 
-                    dx = streamline[distance_min_idx, 0] - streamline[distance_min_idx - 1, 0]
-                    dy = streamline[distance_min_idx, 1] - streamline[distance_min_idx - 1, 1]
+                    dx = streamline[distance_min_idx, 0] - \
+                        streamline[distance_min_idx - 1, 0]
+                    dy = streamline[distance_min_idx, 1] - \
+                        streamline[distance_min_idx - 1, 1]
 
                     Singularity[j]["s_in"].append(i)
                     Streamlines[i]["s_in"] = j
