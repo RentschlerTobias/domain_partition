@@ -12,7 +12,7 @@ def main():
 
     path = f'/mnt/redacted'
     path_save = '/mnt/redacted'
-    meshes = torch.load(path)
+    meshes = torch.load(path, weights_only=False)
 
     transfinite_divisions = [3, 4, 5]
 

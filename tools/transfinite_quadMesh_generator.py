@@ -7,13 +7,13 @@ from torch_geometric.data import Data
 
 
 class QuadMeshGenerator:
-    def __init__(self, block_mesh, lc=0.5):
+    def __init__(self, block_mesh, lc=0.5, transfinite_divisions=20):
 
         self.nodes = block_mesh.x
         self.faces = block_mesh.faces
 
-        self.streamline_mapping         = block_mesh.edge_to_streamline
-        self.transfinite_divisions      = 20
+        self.streamline_mapping = block_mesh.edge_to_streamline
+        self.transfinite_divisions = transfinite_divisions
 
         self.transfinite_interpolation()
         self.transfinite_mesh = self.gmsh_mesh_to_torch_graph()
@@ -34,7 +34,8 @@ class QuadMeshGenerator:
 
         gmsh.initialize()
         gmsh.model.add("quad_mesh")
-        gmsh.model.mesh.setTransfiniteAutomatic([], cornerAngle=2.35, recombine=True)
+        gmsh.model.mesh.setTransfiniteAutomatic(
+            [], cornerAngle=2.35, recombine=True)
 
         points = {}
         for i, face in enumerate(self.faces.T):
@@ -51,12 +52,14 @@ class QuadMeshGenerator:
                     curve_points.append(points[key])
 
                 if len(curve_points) == 2:
-                    curve_id = gmsh.model.geo.addLine(curve_points[0], curve_points[1])
+                    curve_id = gmsh.model.geo.addLine(
+                        curve_points[0], curve_points[1])
                 else:
                     curve_id = gmsh.model.geo.addSpline(curve_points)
 
                 curves.append(curve_id)
-                gmsh.model.geo.mesh.setTransfiniteCurve(curve_id, self.transfinite_divisions)
+                gmsh.model.geo.mesh.setTransfiniteCurve(
+                    curve_id, self.transfinite_divisions)
 
             loop = gmsh.model.geo.addCurveLoop(curves)
             surf = gmsh.model.geo.addPlaneSurface([loop])
@@ -68,10 +71,10 @@ class QuadMeshGenerator:
 
     def gmsh_mesh_to_torch_graph(self):
 
-        node_tags, node_coords, _   = gmsh.model.mesh.getNodes()
-        node_coords                 = np.array(node_coords).reshape(-1, 3)
-        node_coords_tensor          = torch.from_numpy(node_coords).float()
-        node_tags                   = node_tags - 1  # Convert to 0-based indexing
+        node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
+        node_coords = np.array(node_coords).reshape(-1, 3)
+        node_coords_tensor = torch.from_numpy(node_coords).float()
+        node_tags = node_tags - 1  # Convert to 0-based indexing
 
         element_types, element_tags, node_tags_per_element = gmsh.model.mesh.getElements()
 
@@ -81,10 +84,12 @@ class QuadMeshGenerator:
         new_faces = None
         for etype, etags, ntags in zip(element_types, element_tags, node_tags_per_element):
             if etype == 3:  # Quadrilaterals - prioritize these
-                new_faces = np.array(ntags).reshape(-1, 4) - 1  # Convert to 0-based indexing
+                # Convert to 0-based indexing
+                new_faces = np.array(ntags).reshape(-1, 4) - 1
                 break
             elif etype == 2 and faces is None:  # Only use triangles if no quads are found
-                new_faces = np.array(ntags).reshape(-1, 3) - 1  # Convert to 0-based indexing
+                # Convert to 0-based indexing
+                new_faces = np.array(ntags).reshape(-1, 3) - 1
 
         if new_faces is None:
             raise ValueError(
@@ -98,10 +103,12 @@ class QuadMeshGenerator:
         edge_index = self.faces_to_edges(faces_tensor)
         num_nodes = node_coords_tensor.size(0)
 
-        new_edge_index, _, mask = remove_isolated_nodes(edge_index, num_nodes=num_nodes)
+        new_edge_index, _, mask = remove_isolated_nodes(
+            edge_index, num_nodes=num_nodes)
 
         # Create a mapping for old to new indices
-        index_mapping = torch.full((node_coords_tensor.size(0),), -1, dtype=torch.long)
+        index_mapping = torch.full(
+            (node_coords_tensor.size(0),), -1, dtype=torch.long)
         index_mapping[mask] = torch.arange(mask.sum(), dtype=torch.long)
 
         # Adjust faces to remove invalid faces and remap indices

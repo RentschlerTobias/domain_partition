@@ -1,5 +1,6 @@
 saved_meshes/
 __pycache__/
+tools/__pycache__/
 figures/
 *.pyc
 *.log
