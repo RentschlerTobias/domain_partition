@@ -165,7 +165,7 @@ def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
                                frame_field_u    =   frame_field_u,
                                frame_field_angle    =   frame_field_angle,
                                streamlines      =   streamlines,
-                               edge_to_streamline   =   edge_to_streamline
+                               edge_to_streamline   =   edge_to_streamline,
                                tri_edges_attr   =   tri_edges_attr,
                                tri_mesh_face_attr   =   tri_mesh_face_attr,
                                tri_edges=tri_edges, tri_faces   =   tri_faces,
