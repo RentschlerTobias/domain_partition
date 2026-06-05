@@ -1,19 +1,42 @@
 #!/bin/sh
-
 #PBS -N DataGenMesh
 #PBS -l walltime=48:00:00
 #PBS -l nodes=CLUSTER_NODE:ppn=8
-# go to submit directory
+#PBS -j oe
 
-cd $PBS_O_WORKDIR
+# --- config (anpassen) ---------------------------------------------------
+REPO=/mnt/redacted
+ENV=/mnt/redacted
+NUM_MESHES=1000
+# node-lokales Scratch: Mesh-Checkpoints landen hier, NICHT auf dem Netz-FS
+SCRATCH=/sandbox/${USER}/mesh_${PBS_JOBID}
+# Ablage nach dem Lauf (persistent, auf dem Repo-/Netz-FS)
+PERSIST=${REPO}/saved_meshes/run_${PBS_JOBID}
+# -------------------------------------------------------------------------
 
-cd /mnt/redacted
+set -e
+cd "$REPO"
 
-source /mnt/redacted
+source "$ENV/bin/activate"
 export OSLO_LOCK_PATH=~/tmp
-
 export FOAM_SIGFPE=false
+export MESH_SCRATCH="$SCRATCH"
 
-python data_generator.py > output_mars.log
+mkdir -p "$SCRATCH"
+
+# Scratch beim Job-Ende immer aufraeumen + Ergebnisse zurueckkopieren
+# (auch bei Abbruch/Timeout dank trap).
+cleanup() {
+    if [ -d "$SCRATCH/saved_meshes" ]; then
+        mkdir -p "$PERSIST"
+        cp -v "$SCRATCH"/saved_meshes/*.pt "$PERSIST"/ 2>/dev/null || true
+    fi
+    rm -rf "$SCRATCH"
+}
+trap cleanup EXIT
+
+# Generierung -> node-lokales Scratch (silent + tqdm bar). Log auf Repo zum
+# Live-Mitlesen (klein, vernachlaessigbarer Netz-Verkehr).
+python data_generator.py -n "$NUM_MESHES" > "$REPO/output_mars.log" 2>&1
 
 deactivate
