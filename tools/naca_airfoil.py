@@ -30,6 +30,14 @@ class NACA_airfoil:
 
         self.suction_side_rotated, self.pressure_side_rotated = self.rotate()
 
+        # Guarantee a clearance band to the domain boundary so the leading/
+        # trailing edge never sits against [0,1]^2 (which produces tiny,
+        # unusable quad blocks). Shrinks uniformly about the domain center
+        # only if the rotated profile exceeds the allowed band.
+        self.clearance_margin = 0.1
+        self.suction_side_rotated, self.pressure_side_rotated = self.enforce_clearance(
+            self.clearance_margin)
+
     def camber_line(self, x):
         return np.where((x >= 0) & (x <= (self.c * self.p)),
                         self.m * (x / np.power(self.p, 2)) *
@@ -78,8 +86,13 @@ class NACA_airfoil:
             center = (np.mean(self.suction_side, axis=0) +
                       np.mean(self.pressure_side, axis=0)) / 2
 
+            # Recenter onto the domain middle (0.5, 0.5) instead of the airfoil's
+            # own (scaling-shifted) centroid. Scaling about the origin drags the
+            # profile toward (0,0); without recentering the leading edge can end
+            # up against the boundary -> tiny, unusable quad blocks there.
+            domain_center = np.array([0.5, 0.5])
             translation_to_origin = -center
-            translation_back = center
+            translation_back = domain_center
 
             translated_suction_side = self.suction_side + translation_to_origin
             rotated_suction_side = np.dot(
@@ -92,3 +105,20 @@ class NACA_airfoil:
             return rotated_suction_side, rotated_pressure_side
         except:
             print('Geometry not generated yet')
+
+    def enforce_clearance(self, margin=0.1):
+        """Uniformly shrink the (already centered) profile about the domain
+        center so its bounding box fits inside [margin, 1-margin]^2."""
+        domain_center = np.array([0.5, 0.5])
+        pts = np.vstack([self.suction_side_rotated, self.pressure_side_rotated])
+        half_extent = np.abs(pts - domain_center).max()  # uniform -> shape preserved
+        allowed = 0.5 - margin
+
+        if half_extent <= allowed or half_extent == 0:
+            return self.suction_side_rotated, self.pressure_side_rotated
+
+        factor = allowed / half_extent
+        self.scale_factor *= factor
+        suction = (self.suction_side_rotated - domain_center) * factor + domain_center
+        pressure = (self.pressure_side_rotated - domain_center) * factor + domain_center
+        return suction, pressure

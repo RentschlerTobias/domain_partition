@@ -13,6 +13,7 @@ from .separatrix_generator_v2 import SeparatrixGenerator_v2
 from .import_obj_to_torch import MeshFromFieldgen
 from .transfinite_interpolation import Transfinite_Interpolation
 from .check_mesh import MeshCheck
+from .quad_partition_validator import QuadPartitionValidator
 from .streamline_merging import StreamlineMerging
 
 from .streamline_intersection_splitter import StreamlineIntersectionSplitter
