@@ -2,7 +2,7 @@ import torch
 
 
 class MeshCheck:
-    def __init__(self, tri_mesh, quad_mesh, tol=1e-6):
+    def __init__(self, tri_mesh, quad_mesh, tol=1e-6, rel_tol=1e-2):
 
         tri_vertices = tri_mesh.x[:, 0:2]
         tri_faces = tri_mesh.faces.T
@@ -30,8 +30,15 @@ class MeshCheck:
         # self.quad_area = torch.sum(triangle1_area + triangle2_area)
         # self.quad_area = torch.sum(torch.abs(cross1 + cross2) / 2.0)
 
-        if torch.abs(self.tri_area - self.quad_area) <= tol:
+        # Relative area match. Absolute tol on a variable-size domain rejected
+        # topologically-correct partitions whose quad edges bow (spline curves)
+        # by a tiny absolute amount. Compare relative to the tri reference area.
+        abs_diff = torch.abs(self.tri_area - self.quad_area)
+        rel_diff = abs_diff / (torch.abs(self.tri_area) + 1e-12)
+        self.abs_area_diff = abs_diff
+        self.rel_area_diff = rel_diff
+
+        if abs_diff <= tol or rel_diff <= rel_tol:
             self.is_valid = True
         else:
-
             self.is_valid = False

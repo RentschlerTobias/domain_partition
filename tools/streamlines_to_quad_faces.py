@@ -75,17 +75,34 @@ class QuadFaceGenerator:
         Edges = []
         for e in range(edges.size(1)):
             Edges.append((edges[0,e].item(),edges[1,e].item()))
-        
+
         graph = nx.Graph()
         graph.add_edges_from(Edges)
-        faces_raw = list(nx.simple_cycles(graph, length_bound=4))
-        
-        quad_faces = []
-        for i in range(len(faces_raw)):
-            face = faces_raw[i]
-            if len(face) == 4:
-                quad_faces.append(face)
-                
+
+        # Extract actual planar faces (regions), not arbitrary 4-cycles.
+        # simple_cycles returns every chordless/chorded <=4 cycle in the graph,
+        # including spurious diagonal quads -> inconsistent partition. The real
+        # block faces are the bounded regions of the planar embedding.
+        is_planar, embedding = nx.check_planarity(graph)
+        if not is_planar:
+            # Graph not planar -> partition is broken, no valid quad faces.
+            return torch.empty((4, 0), dtype=torch.long)
+
+        faces_raw = []
+        seen_half_edges = set()
+        for u, v in embedding.edges():
+            if (u, v) in seen_half_edges:
+                continue
+            face = embedding.traverse_face(u, v, mark_half_edges=seen_half_edges)
+            faces_raw.append(face)
+
+        # Keep only quad regions. The unbounded outer face (rectangle + airfoil
+        # contour) has >4 nodes and is naturally dropped by the length filter.
+        quad_faces = [face for face in faces_raw if len(face) == 4]
+
+        if len(quad_faces) == 0:
+            return torch.empty((4, 0), dtype=torch.long)
+
         return torch.tensor(quad_faces).T
 
     def sort_faces_ccw(self,faces, nodes):

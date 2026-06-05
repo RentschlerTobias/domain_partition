@@ -9,7 +9,7 @@ class Evaluation:
         if path == None:
            path="./saved_meshes/frame_field_time_measured/all_meshes_incl_time.pt" 
 
-        self.meshes = torch.load(path)
+        self.meshes = torch.load(path,weights_only = False)
         # self.grouped_data,self.bin_edges = self.group_meshes(self.meshes)
         # self.generate_box_plots(output_file="./figures/frame_field_time_numerical_v2.png")
         # self.generate_box_plots(eval_mode_gnn=True,output_file="./figures/frame_field_time_gnn_v2.png")

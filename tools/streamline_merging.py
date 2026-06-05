@@ -24,7 +24,7 @@ class StreamlineMerging:
 
         mask_c0_nodes               = mesh.x[:, 2] == 0
         c0_nodes                    = mesh.x[mask_c0_nodes, 0:2]
-        singularity_coords          = torch.tensor([mesh.singularities_coords[sing] for sing in mesh.singularities_coords])
+        singularity_coords          = torch.tensor([mesh.singularities_coords[sing] for sing in mesh.singularities_coords], dtype=mesh.x.dtype)
         streamline_termination_nodes = torch.cat((c0_nodes, singularity_coords), 0)
 
         streamlines = mesh.streamlines

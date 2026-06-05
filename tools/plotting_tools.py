@@ -27,23 +27,23 @@ def plt_faces(mesh):
         plt.fill(surface[:, 0], surface[:, 1], color=rand_color)
 
 
-def plot_streamline_dicc(Streamlines):
+def plot_streamline_dicc(Streamlines, output_file="./figures/streamlines/streamlines_dicc.png"):
     import matplotlib.pyplot as plt
     import numpy as np
+    import os
+
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    plt.figure(figsize=(5, 5))
 
     for key in Streamlines.keys():
-        streamline = Streamlines[key]["coords"]
-        figsize = (5, 5)
-        plt.figure(figsize=figsize)
-        streamline = np.array(streamline)  # Convert to numpy array for easier plotting
-        color = np.random.rand(3,)  # Random RGB color for each face
-
+        streamline = np.array(Streamlines[key]["coords"])  # (N, 2)
+        color = np.random.rand(3,)  # random color per streamline
         plt.plot(streamline[:, 0], streamline[:, 1], color=color)
-        plt.xlim = [0, 1]
-        plt.ylim = [0, 1]
-        output_file = f"./figures/faces/streamline_{i}.png"
-        plt.savefig(output_file, dpi=300, transparent=True)
-        plt.close()
+
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, transparent=True)
+    plt.close()
 
 
 def plot_streamlines_independet(mesh):

@@ -2,7 +2,7 @@
 from tools import MeshGenerator, FrameField, NACA_airfoil, StreamlineGenerator
 from tools import StreamlineSimplificator
 from tools import Transfinite_Interpolation
-from tools import MeshCheck
+from tools import MeshCheck, QuadPartitionValidator
 from tools.plotting_tools import *
 from tools.save_load import *
 from torch_geometric.data import Data
@@ -64,12 +64,24 @@ def get_mesh():
 
         print('called function streamlines_post_processed')
         blocked_mesh                = streamlines_post_processed.quad_mesh
+        tri_mesh                    = streamline.mesh
+
+        # --- Pre-Filter: Quad Partition Validator (Phase 1: strict=False) ---
+        validator                   = QuadPartitionValidator(blocked_mesh, tri_mesh, strict=False)
+        if not validator.is_valid():
+            print('failed: blocked mesh invalid (pre-filter)')
+            print('\n'.join(validator.diagnostics()))
+            return None
+        qs = validator.quality_score()
+        print(f"Pre-filter quality: SJ_min={qs.get('scaled_jacobian_min', -1):.3f}, "
+              f"angle=[{qs.get('min_interior_angle', -1):.1f}, {qs.get('max_interior_angle', -1):.1f}], "
+              f"aspect={qs.get('edge_length_ratio_max', -1):.2f}")
+        # --------------------------------------------------------------------
 
         print('called function Transfinite_Interpolation')
         transfiniteInterpolation    = Transfinite_Interpolation(blocked_mesh)
 
         quad_mesh                   = transfiniteInterpolation.quad_mesh
-        tri_mesh                    = streamline.mesh 
         mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=0.015)
         is_valid                    = mesh_check.is_valid
         print(f'!!! \n area difference: \n {mesh_check.quad_area-mesh_check.tri_area}\n !!!')
