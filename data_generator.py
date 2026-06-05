@@ -15,6 +15,10 @@ import tempfile
 import argparse
 from tqdm import tqdm
 
+# Node-local scratch. Mesh temp-handoff + checkpoints land hier statt auf dem
+# (langsamen / netzgebundenen) Repo-Filesystem. Per env MESH_SCRATCH ueberschreibbar.
+SCRATCH_DIR = os.environ.get("MESH_SCRATCH", "/sandbox")
+
 def get_mesh():
     np.random.seed(int(time.time() * 1000) % 2**32 + os.getpid())
 
@@ -71,8 +75,9 @@ def _mesh_worker(queue, idx, quiet=False):
             queue.put(None)
             return
 
+        os.makedirs(SCRATCH_DIR, exist_ok=True)
         tmpfile = tempfile.NamedTemporaryFile(
-            delete=False, suffix=f"_mesh_{idx}.pt"
+            delete=False, dir=SCRATCH_DIR, suffix=f"_mesh_{idx}.pt"
         )
         torch.save(mesh, tmpfile.name)
         queue.put(tmpfile.name)
@@ -97,9 +102,11 @@ def run_with_timeout(idx, timeout=300, quiet=False):
     return q.get() if not q.empty() else None
 
 
-def main(quiet=True, number_of_meshes=1000):
+def main(quiet=True, number_of_meshes=1000, checkpoint_dir=None):
     checkpoint_interval = 10  # alle 10 speichern
-    checkpoint_dir = "./saved_meshes/"
+    # Default: node-local scratch, damit das Netzwerk-FS nicht lahmgelegt wird.
+    if checkpoint_dir is None:
+        checkpoint_dir = os.path.join(SCRATCH_DIR, "saved_meshes")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     successful_meshes = 0
@@ -221,5 +228,7 @@ if __name__ == "__main__":
                         help="Full output (incl. gmsh), no progress bar. Default: silent + tqdm bar.")
     parser.add_argument("-n", "--number", type=int, default=1000,
                         help="Number of successful meshes to generate (default: 1000)")
+    parser.add_argument("-o", "--out", type=str, default=None,
+                        help=f"Checkpoint output dir (default: {SCRATCH_DIR}/saved_meshes, node-local)")
     args = parser.parse_args()
-    main(quiet=not args.verbose, number_of_meshes=args.number)
+    main(quiet=not args.verbose, number_of_meshes=args.number, checkpoint_dir=args.out)
