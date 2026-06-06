@@ -92,91 +92,94 @@ def _mesh_worker(queue, idx, quiet=False):
         queue.put(None)
 
 
-# Hilfsfunktion: führt get_mesh in eigenem Prozess aus, killt bei Timeout
-def run_with_timeout(idx, timeout=300, quiet=False):
-    q = mp.Queue()
-    p = mp.Process(target=_mesh_worker, args=(q, idx, quiet))
-    p.start()
-    p.join(timeout)
-
-    if p.is_alive():
-        p.terminate()
-        p.join()
-        return None  # Timeout → kein Mesh
-
-    return q.get() if not q.empty() else None
-
-
-def main(quiet=True, number_of_meshes=10000, checkpoint_dir=None):
-    checkpoint_interval = 100  # alle 10 speichern
+def main(quiet=True, number_of_meshes=10000, checkpoint_dir=None,
+         num_workers=8, timeout=300):
+    checkpoint_interval = 100
     if checkpoint_dir is None:
         checkpoint_dir = os.path.join(SCRATCH_DIR, "saved_meshes")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     successful_meshes = 0
     failed_meshes = 0
-    counter = 0
-    database = []  # sammelt Meshes bis 10
+    counter = 0  # launched attempts
+    database = []
 
-    # quiet -> tqdm bar (total trials + successful), no per-mesh prints.
-    # verbose -> full prints (incl. gmsh), no bar.
     pbar = tqdm(total=number_of_meshes, desc="meshes",
                 unit="mesh", disable=not quiet)
 
-    while successful_meshes < number_of_meshes:
-        tmp_path = run_with_timeout(counter, timeout=300, quiet=quiet)
+    active = {}  # slot -> {proc, q, t0}
+
+    def launch(slot):
+        nonlocal counter
+        q = mp.Queue()
+        p = mp.Process(target=_mesh_worker, args=(q, counter, quiet))
+        p.start()
+        active[slot] = {"proc": p, "q": q, "t0": time.time()}
         counter += 1
-        if not quiet:
-            print(f"\n--- counter: {counter} ---\n")
 
-        if tmp_path is not None and os.path.exists(tmp_path):
-            try:
-                mesh_data = torch.load(tmp_path, weights_only=False)
-                os.remove(tmp_path)  # Temp-Datei wieder löschen
+    # keep all worker slots busy while we still need successes
+    for slot in range(num_workers):
+        if successful_meshes < number_of_meshes:
+            launch(slot)
 
-                successful_meshes += 1
-                database.append(mesh_data)
-                pbar.update(1)
-                if not quiet:
-                    print(f"successful meshes: {successful_meshes}")
+    while active:
+        time.sleep(0.05)
+        for slot in list(active.keys()):
+            info = active[slot]
+            p = info["proc"]
+            timed_out = (time.time() - info["t0"]) > timeout
+            if p.is_alive() and not timed_out:
+                continue
 
-                # Alle 10 abspeichern
-                if successful_meshes % checkpoint_interval == 0:
-                    checkpoint_path = os.path.join(
-                        checkpoint_dir, f'checkpoint_mesh_{
-                            successful_meshes}.pt'
-                    )
-                    torch.save(database, checkpoint_path)
-                    database = []  # RAM freigeben
-                    if not quiet:
-                        print(f"Checkpoint gespeichert: {checkpoint_path}")
+            tmp_path = None
+            if p.is_alive():  # timed out
+                p.terminate()
+                p.join()
+            else:
+                p.join()
+                try:
+                    tmp_path = info["q"].get_nowait()
+                except Exception:
+                    tmp_path = None
+            del active[slot]
 
-            except Exception as e:
+            if tmp_path is not None and os.path.exists(tmp_path):
+                try:
+                    mesh_data = torch.load(tmp_path, weights_only=False)
+                    os.remove(tmp_path)
+                    successful_meshes += 1
+                    database.append(mesh_data)
+                    if successful_meshes <= number_of_meshes:
+                        pbar.update(1)
+                    if successful_meshes % checkpoint_interval == 0:
+                        checkpoint_path = os.path.join(
+                            checkpoint_dir,
+                            f'checkpoint_mesh_{successful_meshes}.pt')
+                        torch.save(database, checkpoint_path)
+                        database = []
+                except Exception:
+                    failed_meshes += 1
+            else:
                 failed_meshes += 1
-                if not quiet:
-                    print(f"⚠️ Fehler beim Laden des Meshes: {e}")
 
-        else:
-            failed_meshes += 1
-            if not quiet:
-                print("⚠️ Mesh ist nicht valide oder Timeout erreicht")
+            pbar.set_postfix(trials=counter, fails=failed_meshes,
+                             rate=f"{successful_meshes / max(counter, 1):.1%}")
 
-        # tqdm postfix: total trials, fails, live success rate
-        pbar.set_postfix(trials=counter, fails=failed_meshes,
-                         rate=f"{successful_meshes / max(counter, 1):.1%}")
+            # refill the freed slot until target reached
+            if successful_meshes < number_of_meshes:
+                launch(slot)
 
     pbar.close()
 
-    # letzten Rest speichern (<10)
+    # flush remaining meshes (< checkpoint_interval)
     if database:
         checkpoint_path = os.path.join(
-            checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt'
-        )
+            checkpoint_dir, f'checkpoint_mesh_{successful_meshes}.pt')
         torch.save(database, checkpoint_path)
-        print(f"Final checkpoint gespeichert: {checkpoint_path}")
+        print(f"Final checkpoint saved: {checkpoint_path}")
 
-    print(f"Total failed meshes {
-          failed_meshes}; total successful meshes {successful_meshes}")
+    print(f"Total failed meshes {failed_meshes}; "
+          f"total successful meshes {successful_meshes}")
 
 
 def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
@@ -235,6 +238,8 @@ if __name__ == "__main__":
                         help="Number of successful meshes to generate (default: 1000)")
     parser.add_argument("-o", "--out", type=str, default=None,
                         help=f"Checkpoint output dir (default: {SCRATCH_DIR}/saved_meshes, node-local)")
+    parser.add_argument("-j", "--workers", type=int, default=8,
+                        help="Concurrent worker processes (default: 8)")
     args = parser.parse_args()
     main(quiet=not args.verbose, number_of_meshes=args.number,
-         checkpoint_dir=args.out)
+         checkpoint_dir=args.out, num_workers=args.workers)
