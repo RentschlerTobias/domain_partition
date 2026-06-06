@@ -17,38 +17,41 @@ from tqdm import tqdm
 
 # Node-local scratch. Mesh temp-handoff + checkpoints land hier statt auf dem
 # (langsamen / netzgebundenen) Repo-Filesystem. Per env MESH_SCRATCH ueberschreibbar.
-SCRATCH_DIR = os.environ.get("MESH_SCRATCH", "/sandbox")
+SCRATCH_DIR = os.environ.get("MESH_SCRATCH", "/sandbox/data_trent")
+
 
 def get_mesh():
     np.random.seed(int(time.time() * 1000) % 2**32 + os.getpid())
 
     try:
-        airfoil                     = NACA_airfoil()
-        random_lc                   = 0.04 + 0.02 * np.random.rand()
-        mesh_gen                    = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
-        frameField                  = FrameField(mesh_gen.mesh)
-        streamline                  = StreamlineGenerator_v2(frameField.mesh)
-        streamlines_post_processed  = StreamlinePostProcessor(streamline.mesh)
-        blocked_mesh                = streamlines_post_processed.block_mesh
-        tri_mesh                    = streamlines_post_processed.mesh
+        airfoil = NACA_airfoil()
+        random_lc = 0.04 + 0.02 * np.random.rand()
+        mesh_gen = MeshGenerator(airfoil, quadMesh=False, lc=random_lc)
+        frameField = FrameField(mesh_gen.mesh)
+        streamline = StreamlineGenerator_v2(frameField.mesh)
+        streamlines_post_processed = StreamlinePostProcessor(streamline.mesh)
+        blocked_mesh = streamlines_post_processed.block_mesh
+        tri_mesh = streamlines_post_processed.mesh
 
         # --- Pre-Filter: Quad Partition Validator (Phase 1: strict=False) ---
-        validator                   = QuadPartitionValidator(blocked_mesh, tri_mesh, strict=False)
+        validator = QuadPartitionValidator(
+            blocked_mesh, tri_mesh, strict=False)
         if not validator.is_valid():
             print('failed: blocked mesh invalid (pre-filter)')
             print('\n'.join(validator.diagnostics()))
             return None
         qs = validator.quality_score()
         print(f"Pre-filter quality: SJ_min={qs.get('scaled_jacobian_min', -1):.3f}, "
-              f"angle=[{qs.get('min_interior_angle', -1):.1f}, {qs.get('max_interior_angle', -1):.1f}], "
+              f"angle=[{qs.get('min_interior_angle', -1)                        :.1f}, {qs.get('max_interior_angle', -1):.1f}], "
               f"aspect={qs.get('edge_length_ratio_max', -1):.2f}")
         # --------------------------------------------------------------------
 
-        transfiniteInterpolator     = QuadMeshGenerator(blocked_mesh)
-        quad_mesh                   = transfiniteInterpolator.transfinite_mesh
-        mesh_check                  = MeshCheck(tri_mesh, quad_mesh, tol=1e-3)
-        success                     = mesh_check.is_valid
-        print(f'!!! \n area difference: \n {mesh_check.quad_area - mesh_check.tri_area}\n !!!')
+        transfiniteInterpolator = QuadMeshGenerator(blocked_mesh)
+        quad_mesh = transfiniteInterpolator.transfinite_mesh
+        mesh_check = MeshCheck(tri_mesh, quad_mesh, tol=1e-3)
+        success = mesh_check.is_valid
+        print(f'!!! \n area difference: \n {
+              mesh_check.quad_area - mesh_check.tri_area}\n !!!')
         if success == True:
             mesh = extract_mesh_data(tri_mesh, quad_mesh, blocked_mesh)
             print('succssess')
@@ -61,12 +64,14 @@ def get_mesh():
         print(f'\n domain partition failed: {type(e).__name__}: {e} \n')
         traceback.print_exc()
 
+
 def _mesh_worker(queue, idx, quiet=False):
     # Silence ALL child output (Python prints + gmsh/numba C-level stdout/stderr)
     # at the file-descriptor level so the tqdm bar in the parent stays clean.
     if quiet:
         devnull = os.open(os.devnull, os.O_WRONLY)
-        sys.stdout.flush(); sys.stderr.flush()
+        sys.stdout.flush()
+        sys.stderr.flush()
         os.dup2(devnull, 1)
         os.dup2(devnull, 2)
     try:
@@ -102,9 +107,8 @@ def run_with_timeout(idx, timeout=300, quiet=False):
     return q.get() if not q.empty() else None
 
 
-def main(quiet=True, number_of_meshes=1000, checkpoint_dir=None):
-    checkpoint_interval = 10  # alle 10 speichern
-    # Default: node-local scratch, damit das Netzwerk-FS nicht lahmgelegt wird.
+def main(quiet=True, number_of_meshes=10000, checkpoint_dir=None):
+    checkpoint_interval = 100  # alle 10 speichern
     if checkpoint_dir is None:
         checkpoint_dir = os.path.join(SCRATCH_DIR, "saved_meshes")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -116,7 +120,8 @@ def main(quiet=True, number_of_meshes=1000, checkpoint_dir=None):
 
     # quiet -> tqdm bar (total trials + successful), no per-mesh prints.
     # verbose -> full prints (incl. gmsh), no bar.
-    pbar = tqdm(total=number_of_meshes, desc="meshes", unit="mesh", disable=not quiet)
+    pbar = tqdm(total=number_of_meshes, desc="meshes",
+                unit="mesh", disable=not quiet)
 
     while successful_meshes < number_of_meshes:
         tmp_path = run_with_timeout(counter, timeout=300, quiet=quiet)
@@ -126,7 +131,6 @@ def main(quiet=True, number_of_meshes=1000, checkpoint_dir=None):
 
         if tmp_path is not None and os.path.exists(tmp_path):
             try:
-                # Mesh im Hauptprozess laden
                 mesh_data = torch.load(tmp_path, weights_only=False)
                 os.remove(tmp_path)  # Temp-Datei wieder löschen
 
@@ -223,7 +227,8 @@ def extract_mesh_data(tri_mesh, quad_mesh, block_mesh):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Quad-domain-partition data generator")
+    parser = argparse.ArgumentParser(
+        description="Quad-domain-partition data generator")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Full output (incl. gmsh), no progress bar. Default: silent + tqdm bar.")
     parser.add_argument("-n", "--number", type=int, default=1000,
@@ -231,4 +236,5 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--out", type=str, default=None,
                         help=f"Checkpoint output dir (default: {SCRATCH_DIR}/saved_meshes, node-local)")
     args = parser.parse_args()
-    main(quiet=not args.verbose, number_of_meshes=args.number, checkpoint_dir=args.out)
+    main(quiet=not args.verbose, number_of_meshes=args.number,
+         checkpoint_dir=args.out)

@@ -6,8 +6,8 @@
 
 REPO="${PBS_O_WORKDIR:-$(pwd)}"
 ENV="${MESH_ENV:-/mnt/redacted}"
-NUM_MESHES="${NUM_MESHES:-1000}"
-SCRATCH=/sandbox/${USER}/mesh_${PBS_JOBID}
+NUM_MESHES="${NUM_MESHES:-10000}"
+SCRATCH=/sandbox/data_trent/mesh_${PBS_JOBID}
 PERSIST=${REPO}/saved_meshes/run_${PBS_JOBID}
 
 set -e
@@ -22,14 +22,14 @@ mkdir -p "$SCRATCH"
 
 # copy results back + clean scratch on any exit
 cleanup() {
-    if [ -d "$SCRATCH/saved_meshes" ]; then
-        mkdir -p "$PERSIST"
-        cp "$SCRATCH"/saved_meshes/*.pt "$PERSIST"/ 2>/dev/null || true
-    fi
-    rm -rf "$SCRATCH"
+  if [ -d "$SCRATCH/saved_meshes" ]; then
+    mkdir -p "$PERSIST"
+    cp "$SCRATCH"/saved_meshes/*.pt "$PERSIST"/ 2>/dev/null || true
+  fi
+  rm -rf "$SCRATCH"
 }
 trap cleanup EXIT
 
-python data_generator.py -n "$NUM_MESHES" > "$REPO/output_mars.log" 2>&1
+python data_generator.py -n "$NUM_MESHES" >"$REPO/output_mars.log" 2>&1
 
 deactivate
