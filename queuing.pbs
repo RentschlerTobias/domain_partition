@@ -1,22 +1,37 @@
 #!/bin/sh
-
 #PBS -N DataGenMesh
 #PBS -l walltime=48:00:00
-#PBS -l nodes=1:ppn=8
 
-# USER INPUT REQUIRED: cluster paths vary. Set the following environment
-# variables before submitting, e.g.:
-#   qsub -v QUADMESH_WORKDIR=/path/to/domain_partition,QUADMESH_PYTHON_ENV=/path/to/venv/bin/activate queuing.pbs
-#
-#   QUADMESH_WORKDIR  - directory containing data_generator.py
-#   QUADMESH_PYTHON_ENV - path to the Python virtualenv activate script
+#PBS -l nodes=CLUSTER_NODE:ppn=8
+#PBS -j oe
 
-cd "${QUADMESH_WORKDIR:?Please set QUADMESH_WORKDIR}"
-source "${QUADMESH_PYTHON_ENV:?Please set QUADMESH_PYTHON_ENV}"
+REPO="${PBS_O_WORKDIR:-$(pwd)}"
+ENV="${MESH_ENV:-/mnt/redacted}"
+NUM_MESHES="${NUM_MESHES:-10000}"
+SCRATCH=/sandbox/data_trent/mesh_${PBS_JOBID}
+PERSIST=${REPO}/saved_meshes/run_${PBS_JOBID}
+
+set -e
+cd "$REPO"
+
+source "$ENV/bin/activate"
+
 export OSLO_LOCK_PATH=~/tmp
-
 export FOAM_SIGFPE=false
+export MESH_SCRATCH="$SCRATCH"
 
-python data_generator.py > output_mars.log
+mkdir -p "$SCRATCH"
+
+# copy results back + clean scratch on any exit
+cleanup() {
+  if [ -d "$SCRATCH/saved_meshes" ]; then
+    mkdir -p "$PERSIST"
+    cp "$SCRATCH"/saved_meshes/*.pt "$PERSIST"/ 2>/dev/null || true
+  fi
+  rm -rf "$SCRATCH"
+}
+trap cleanup EXIT
+
+python data_generator.py -n "$NUM_MESHES" >"$REPO/output_mars.log" 2>&1
 
 deactivate

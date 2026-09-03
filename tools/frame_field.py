@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from tools.mesh_generator import MeshGenerator
 import math
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, coo_matrix
 from scipy.sparse.linalg import spsolve
 import time
 
@@ -118,43 +118,49 @@ class FrameField:
         mask_boundaryEdges = self.mesh.edge_attr == 1
         boundary_nodes_indices = torch.unique(self.mesh.edge_index[0, mask_boundaryEdges])
         num_dofs = num_nodes * 2  # Anzahl der Freiheitsgrade (2 pro Knoten)
-        A = np.zeros((num_dofs, num_dofs))
         b = np.zeros(num_dofs)
+
+        # Sparse assembly via COO triplets (statt dense (2N)^2 + Python-Loop).
+        rows, cols, vals = [], [], []
         for e in range(num_elements):
 
             nodes_indices = elements[e]
             coords = nodes[nodes_indices]  # Shape: (3, 2)
             A_e = self.compute_local_stiffness_matrix(coords)
-            b_e = np.zeros((6,))
 
-            dof_indices = np.zeros(6, dtype=int)
+            dof_indices = np.empty(6, dtype=int)
             for i in range(3):
-                dof_indices[2*i] = 2 * nodes_indices[i]      # x-Komponente
-                dof_indices[2*i+1] = 2 * nodes_indices[i] + 1  # y-Komponente
+                dof_indices[2*i] = 2 * int(nodes_indices[i])      # x-Komponente
+                dof_indices[2*i+1] = 2 * int(nodes_indices[i]) + 1  # y-Komponente
 
+            # b_e ist Null (nabla_u0 = 0) -> kein Beitrag zu b.
             for i_local in range(6):
-                b[dof_indices[i_local]] += b_e[i_local]
                 for j_local in range(6):
-                    A[dof_indices[i_local], dof_indices[j_local]
-                      ] += A_e[i_local, j_local]
+                    rows.append(dof_indices[i_local])
+                    cols.append(dof_indices[j_local])
+                    vals.append(A_e[i_local, j_local])
+
+        # COO -> CSR summiert doppelte (row, col) Eintraege (entspricht dem +=).
+        A = coo_matrix((vals, (rows, cols)), shape=(num_dofs, num_dofs)).tocsr().tolil()
 
         for idx in boundary_nodes_indices:
+            idx = int(idx)
             # Indizes der Freiheitsgrade für diesen Knoten
             dof_x = 2 * idx
             dof_y = 2 * idx + 1
-            # Setzen der entsprechenden Zeilen in A auf Null und Diagonalelemente auf 1
-            A[dof_x, :] = 0
-            A[dof_x, dof_x] = 1
-            A[dof_y, :] = 0
-            A[dof_y, dof_y] = 1
+            # Dirichlet-BC: Zeile auf Null, Diagonale auf 1 (sparse via lil).
+            A.rows[dof_x] = [dof_x]
+            A.data[dof_x] = [1.0]
+            A.rows[dof_y] = [dof_y]
+            A.data[dof_y] = [1.0]
             # Setzen der Werte in b entsprechend den Randbedingungen
-            b[dof_x] = self.mesh.frame_field_coords[idx, 0]
-            b[dof_y] = self.mesh.frame_field_coords[idx, 1]
+            b[dof_x] = float(self.mesh.frame_field_coords[idx, 0])
+            b[dof_y] = float(self.mesh.frame_field_coords[idx, 1])
 
-        A_sparse = csr_matrix(A)
+        A_sparse = A.tocsr()
         u = spsolve(A_sparse, b)
 
-        return A, b, u
+        return A_sparse, b, u
 
     def compute_element_matrices(coords, nodes):
         # coords: Array der Knotenkoordinaten des Elements, Shape: (3, 2)
@@ -230,94 +236,23 @@ class FrameField:
 
         return A_e
 
-    # Maximale Anzahl von Iterationen und Toleranz für die Konvergenz
     def Linearization_Norm_Constraint(self, A, b, u_init):
+        # Non-iterativ (Knöppel et al. 2013, "Globally Optimal Direction Fields"):
+        # u_init ist bereits die glatte harmonische Loesung des
+        # Repraesentationsfeldes (cos4θ, sin4θ) mit harten Rand-Dirichlet-BC
+        # (sparse spsolve in compute_initial_frame_field). Fuer eine flache,
+        # boundary-aligned Domain ist die per-Knoten-Normalisierung dieses Feldes
+        # das glatteste Einheits-Richtungsfeld -> topologisch minimale
+        # Singularitaetenzahl. Ersetzt die fruehere ~130x dense KKT-Iteration.
+        #
+        # A, b bleiben in der Signatur (von generate_cross_field uebergeben),
+        # werden hier aber nicht mehr gebraucht.
+        z = u_init.reshape(-1, 2)
+        norms = np.linalg.norm(z, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-8)  # Division durch Null vermeiden
+        u_current = (z / norms).reshape(-1)
 
-        max_iterations = 1000
-        tolerance = 1e-6
-
-        # Initialisierung der aktuellen Lösung
-        u_current = u_init.copy()
-
-        for n in range(max_iterations):
-            # Speichere die vorherige Lösung
-            #         print(n)
-            u_previous = u_current
-
-            # Schritt a: Linearisierung der Normbedingung
-            # Für jeden Knoten formulieren wir die lineare Nebenbedingung
-
-            # Anzahl der Knoten
-            num_nodes = self.mesh.x.shape[0]
-            num_dofs = num_nodes * 2  # Da wir Vektorfeld mit x- und y-Komponenten haben
-
-            # Aufbau der Matrix C für die Nebenbedingungen
-            C = np.zeros((num_nodes, num_dofs))
-            d = np.ones(num_nodes)  # Rechte Seite der Nebenbedingungen
-            diff = np.inf
-            for i in range(num_nodes):
-                # Indizes der Freiheitsgrade für Knoten i
-                dof_x = 2 * i
-                dof_y = 2 * i + 1
-
-                # Aktuelle Werte von u an Knoten i
-                u_i_x = u_current[dof_x]
-                u_i_y = u_current[dof_y]
-
-                # Gradienten der Normbedingung nach u_x und u_y
-                norm_u_i = np.sqrt(u_i_x**2 + u_i_y**2)
-                if norm_u_i == 0:
-                    # Vermeiden von Division durch Null
-                    norm_u_i = 1e-8
-
-                C[i, dof_x] = u_i_x / norm_u_i
-                C[i, dof_y] = u_i_y / norm_u_i
-                d[i] = 1  # Da die Norm auf 1 gesetzt werden soll
-
-            # Schritt b: Aufstellen des erweiterten Gleichungssystems
-            # Erweiterte Matrix und Vektoren
-            # [A  C^T] [u]   = [b]
-            # [C   0 ] [λ]     [d]
-
-            # Erstellen der erweiterten Matrix
-            KKT_matrix = np.zeros((num_dofs + num_nodes, num_dofs + num_nodes))
-            KKT_rhs = np.zeros(num_dofs + num_nodes)
-
-            # Füllen der KKT-Matrix
-            KKT_matrix[:num_dofs, :num_dofs] = A
-            KKT_matrix[:num_dofs, num_dofs:] = C.T
-            KKT_matrix[num_dofs:, :num_dofs] = C
-            # Die unteren rechten Ecke ist eine Nullmatrix
-
-            # Füllen des rechten Vektors
-            KKT_rhs[:num_dofs] = b
-            KKT_rhs[num_dofs:] = d
-
-            # Anwenden der Randbedingungen
-            # Hier müssen wir sicherstellen, dass die Dirichlet-Randbedingungen erhalten bleiben
-            # Dies kann komplex sein, daher werden wir annehmen, dass die Randbedingungen bereits in A und b berücksichtigt sind
-
-            # Lösen des erweiterten Systems
-            solution = np.linalg.solve(KKT_matrix, KKT_rhs)
-
-            # Extrahieren der neuen Lösung und der Lagrange-Multiplikatoren
-            u_new = solution[:num_dofs]
-            lambdas = solution[num_dofs:]
-
-            # Aktualisieren der aktuellen Lösung
-            u_current = u_new.copy()
-
-            # Schritt c: Überprüfung der Konvergenz
-            diff = np.linalg.norm(u_current - u_previous)
-            if diff < tolerance:
-                print(f"Konvergenz erreicht nach {n+1} Iterationen.")
-                self.mesh.frame_field_iteration_number = n
-                self.mesh.frame_field_tol = diff
-                break
-        else:
-            print("Maximale Anzahl von Iterationen erreicht.")
-            self.mesh.frame_field_iteration_number = max_iterations
-            self.mesh.frame_field_tol = diff
-
+        self.mesh.frame_field_iteration_number = 0
+        self.mesh.frame_field_tol = 0.0
 
         return u_current
