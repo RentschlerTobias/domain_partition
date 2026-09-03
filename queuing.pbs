@@ -1,6 +1,7 @@
 #!/bin/sh
 #PBS -N DataGenMesh
 #PBS -l walltime=48:00:00
+
 #PBS -l nodes=CLUSTER_NODE:ppn=8
 #PBS -j oe
 
@@ -14,6 +15,7 @@ set -e
 cd "$REPO"
 
 source "$ENV/bin/activate"
+
 export OSLO_LOCK_PATH=~/tmp
 export FOAM_SIGFPE=false
 export MESH_SCRATCH="$SCRATCH"
